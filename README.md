@@ -41,7 +41,6 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Warsaw
-      # - PANEL_PASSWORD=zmien-to-haslo
       # - ARCHIVE_PASSWORD=zmien-to-haslo
     volumes:
       - ./data:/data
@@ -52,10 +51,20 @@ docker compose up -d
 ```
 
 - **Panel:** `http://<adres-serwera>:8080/` – tu dodajesz kopie i śledzisz postęp.
+  Przy pierwszym otwarciu panel poprosi o utworzenie konta administratora (login i hasło).
 - **Archiwa:** `http://<adres-serwera>:8081/` – tu otwierają się gotowe kopie (panel linkuje do nich).
 
 Panel i archiwa działają na osobnych portach celowo: zarchiwizowane strony to cudzy kod,
 a osobny port oznacza dla przeglądarki osobne źródło – kopia nie ma dostępu do sesji panelu.
+
+### Zapomniane hasło
+
+```bash
+docker compose exec easycopy easycopy reset-password
+```
+
+Polecenie ustawia nowe, losowe hasło, wypisuje je na ekranie i wylogowuje wszystkie urządzenia.
+Własne hasło: `easycopy reset-password admin --password nowe-haslo`.
 
 ### Robienie kopii z wiersza poleceń
 
@@ -74,7 +83,6 @@ Pliki zapisują się jako użytkownik z `PUID`/`PGID`, nie jako root.
 |--------------------|-----------------|------------------------------------------------------------|
 | `PUID`, `PGID`     | `1000`          | właściciel plików (Unraid: `99` i `100`)                   |
 | `TZ`               | UTC             | strefa czasowa dat w panelu i na liście archiwów           |
-| `PANEL_PASSWORD`   | brak            | hasło do panelu                                            |
 | `ARCHIVE_PASSWORD` | brak            | hasło do archiwów (nazwa użytkownika dowolna)              |
 | `ARCHIVE_BASE_URL` | `http://<host panelu>:8081` | adres archiwów w linkach panelu (np. za reverse proxy) |
 | `PANEL_PORT`       | `8080`          | port panelu w kontenerze                                   |

@@ -6,9 +6,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { listArchives, listVersions, readManifest } from '../server/archives.js';
 import { createAuth, isSameOrigin } from './auth.js';
+import { hashPassword, validatePassword, validateUsername, verifyPassword } from './accounts.js';
 import { FORM_DEFAULTS, formFromJob, parseJobForm } from './job-form.js';
 import {
-  archivesPage, jobPage, jobsPage, jobSummary, layout, loginPage, messagePage, newJobPage,
+  accountPage, archivesPage, jobPage, jobsPage, jobSummary, layout, loginPage, messagePage, newJobPage, setupPage,
 } from './views.js';
 
 const STATIC = {
@@ -47,11 +48,12 @@ function readBody(req) {
 }
 
 /**
- * options: db, archiveRoot, archivePort (8081), archiveBaseUrl (opcjonalnie), password (opcjonalnie),
+ * options: db, archiveRoot, archivePort (8081), archiveBaseUrl (opcjonalnie),
  *          warning (np. ostrzeżenie o systemie plików), log
  */
-export function createPanelHandler({ db, archiveRoot, archivePort = 8081, archiveBaseUrl = null, password = null, warning = null, log = () => {} }) {
-  const auth = createAuth({ password, secret: db.sessionSecret() });
+export function createPanelHandler({ db, archiveRoot, archivePort = 8081, archiveBaseUrl = null, warning = null, log = () => {} }) {
+  const auth = createAuth({ db, secret: db.sessionSecret() });
+  const isSecure = (req) => req.headers['x-forwarded-proto'] === 'https';
 
   const archiveBase = (req) => {
     if (archiveBaseUrl) return archiveBaseUrl.replace(/\/+$/, '');
@@ -64,7 +66,7 @@ export function createPanelHandler({ db, archiveRoot, archivePort = 8081, archiv
     res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', ...BASE_HEADERS, ...headers });
     res.end(res.req.method === 'HEAD' ? undefined : body);
   };
-  const page = (req, res, status, opts) => send(res, status, layout({ auth: auth.enabled, warning, ...opts }));
+  const page = (req, res, status, opts) => send(res, status, layout({ user: req.user ?? null, warning, ...opts }));
   const json = (res, status, data) => send(res, status, JSON.stringify(data), { 'content-type': 'application/json; charset=utf-8' });
   const redirect = (res, location, extra = {}) => {
     res.writeHead(303, { location, ...BASE_HEADERS, ...extra });
@@ -114,25 +116,72 @@ export function createPanelHandler({ db, archiveRoot, archivePort = 8081, archiv
         return page(req, res, 403, { title: 'Odrzucone', body: messagePage('Odrzucone żądanie', 'Formularz nie pochodzi z tego panelu.') });
       }
 
-      // ---------- logowanie ----------
-      if (p === '/logowanie') {
-        if (!auth.enabled) return redirect(res, '/');
+      // ---------- instalacja: pierwsze konto ----------
+      const needsSetup = auth.needsSetup();
+      if (p === '/instalacja') {
+        if (!needsSetup) return redirect(res, '/');
         if (method === 'POST') {
           const params = await readBody(req);
-          if (auth.checkPassword(params.get('password'))) {
-            const secure = req.headers['x-forwarded-proto'] === 'https';
-            return redirect(res, '/', { 'set-cookie': auth.sessionCookie(secure) });
+          const username = (params.get('username') ?? '').trim();
+          const password = params.get('password') ?? '';
+          const errors = {
+            username: validateUsername(username),
+            password: validatePassword(password, params.get('repeat') ?? ''),
+          };
+          if (errors.username || errors.password) return send(res, 422, setupPage({ values: { username }, errors }));
+          const id = db.createFirstUser(username, await hashPassword(password));
+          if (!id) return redirect(res, '/logowanie'); // ktoś właśnie założył konto w innym oknie
+          db.touchLogin(id);
+          log(`Utworzono konto administratora „${username}”`);
+          return redirect(res, '/', { 'set-cookie': auth.sessionCookie(db.getUser(id), isSecure(req)) });
+        }
+        return send(res, 200, setupPage({}));
+      }
+      if (needsSetup) {
+        if (p.startsWith('/api/')) return json(res, 503, { error: 'Panel wymaga instalacji' });
+        return redirect(res, '/instalacja');
+      }
+
+      // ---------- logowanie ----------
+      if (p === '/logowanie') {
+        if (method === 'POST') {
+          const params = await readBody(req);
+          const username = (params.get('username') ?? '').trim();
+          const user = await auth.login(username, params.get('password') ?? '');
+          if (user) {
+            log(`Logowanie: ${user.username}`);
+            return redirect(res, '/', { 'set-cookie': auth.sessionCookie(user, isSecure(req)) });
           }
           await sleep(800); // spowalnia zgadywanie hasła
-          return send(res, 401, loginPage({ error: 'Nieprawidłowe hasło.' }));
+          return send(res, 401, loginPage({ error: 'Nieprawidłowy login lub hasło.', username }));
         }
+        if (auth.currentUser(req)) return redirect(res, '/');
         return send(res, 200, loginPage({}));
       }
-      if (p === '/wyloguj' && method === 'POST') return redirect(res, auth.enabled ? '/logowanie' : '/', { 'set-cookie': auth.clearCookie() });
+      if (p === '/wyloguj' && method === 'POST') return redirect(res, '/logowanie', { 'set-cookie': auth.clearCookie() });
 
-      if (!auth.isLoggedIn(req)) {
+      req.user = auth.currentUser(req);
+      if (!req.user) {
         if (p.startsWith('/api/')) return json(res, 401, { error: 'Wymagane logowanie' });
         return redirect(res, '/logowanie');
+      }
+
+      // ---------- konto ----------
+      if (p === '/konto') {
+        if (method === 'POST') {
+          const params = await readBody(req);
+          const errors = {};
+          if (!(await verifyPassword(params.get('current') ?? '', req.user.password_hash))) errors.current = 'Obecne hasło jest nieprawidłowe.';
+          errors.password = validatePassword(params.get('password') ?? '', params.get('repeat') ?? '');
+          if (errors.current || errors.password) {
+            return page(req, res, 422, { title: 'Konto', active: 'konto', body: accountPage({ user: req.user, errors }) });
+          }
+          db.setPassword(req.user.id, await hashPassword(params.get('password')));
+          log(`Zmiana hasła: ${req.user.username}`);
+          // nowe ciasteczko dla tego urządzenia, pozostałe sesje wygasają
+          return redirect(res, '/konto?zmienione=1', { 'set-cookie': auth.sessionCookie(db.getUser(req.user.id), isSecure(req)) });
+        }
+        return page(req, res, 200, { title: 'Konto', active: 'konto', body: accountPage({ user: req.user, saved: url.searchParams.has('zmienione') }) });
       }
 
       // ---------- strony ----------

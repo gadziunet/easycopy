@@ -16,6 +16,7 @@ Użycie:
   easycopy <adres> [opcje]      zrób kopię strony
   easycopy start [opcje]        uruchom panel, serwer archiwów i workera (easycopy start --help)
   easycopy serve [opcje]        uruchom sam serwer archiwów (easycopy serve --help)
+  easycopy reset-password       nowe hasło do panelu (easycopy reset-password --help)
 
 Podstawowe:
   -o, --out <katalog>        katalog archiwów (ARCHIVE_DIR, domyślnie ./archiwa)
@@ -77,7 +78,8 @@ function main() {
 
   // panel ładujemy dopiero przy „start” – samo robienie kopii nie potrzebuje bazy SQLite
   const runStart = (args) => import('./panel/start.js').then((m) => m.runStart(args));
-  const command = { serve: runServe, start: runStart }[process.argv[2]];
+  const runReset = (args) => import('./panel/reset-password.js').then((m) => m.runResetPassword(args));
+  const command = { serve: runServe, start: runStart, 'reset-password': runReset }[process.argv[2]];
   if (command) {
     command(process.argv.slice(3)).catch((err) => {
       console.error(`Błąd: ${err.message}`);

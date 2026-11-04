@@ -45,6 +45,17 @@ const MIGRATIONS = [
     value TEXT NOT NULL
   );
   `,
+  // 2: konta panelu
+  `
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    session_key TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_login_at INTEGER
+  );
+  `,
 ];
 
 export const ACTIVE_STATUSES = ['queued', 'running'];
@@ -219,6 +230,44 @@ export class Db {
          )`,
       )
       .run(perJob);
+  }
+
+  // ---------- konta ----------
+
+  countUsers() {
+    return Number(this.db.prepare('SELECT COUNT(*) AS n FROM users').get().n);
+  }
+
+  /** Pierwsze konto zakładane tylko wtedy, gdy nie ma żadnego (atomowo – dwa kreatory naraz nie przejdą). */
+  createFirstUser(username, passwordHash) {
+    const r = this.db
+      .prepare(
+        `INSERT INTO users (username, password_hash, session_key, created_at)
+         SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`,
+      )
+      .run(username, passwordHash, randomBytes(16).toString('hex'), Date.now());
+    return r.changes ? Number(r.lastInsertRowid) : null;
+  }
+
+  getUser(id) {
+    return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) ?? null;
+  }
+
+  getUserByName(username) {
+    return this.db.prepare('SELECT * FROM users WHERE username = ?').get(username) ?? null;
+  }
+
+  listUsers() {
+    return this.db.prepare('SELECT id, username, created_at, last_login_at FROM users ORDER BY id').all();
+  }
+
+  /** Nowe hasło unieważnia wszystkie dotychczasowe sesje tego konta. */
+  setPassword(id, passwordHash) {
+    this.db.prepare('UPDATE users SET password_hash = ?, session_key = ? WHERE id = ?').run(passwordHash, randomBytes(16).toString('hex'), id);
+  }
+
+  touchLogin(id) {
+    this.db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), id);
   }
 
   // ---------- ustawienia ----------

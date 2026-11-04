@@ -153,9 +153,15 @@ legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
 .log-msg { overflow-wrap: anywhere; }
 .log-empty { padding: 16px 24px; }
 
-/* logowanie */
+/* instalacja, logowanie */
 body.center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-.login { width: 100%; max-width: 380px; }
+.login { width: 100%; max-width: 420px; }
+.login h1 { font-size: 24px; }
+.stack-tight { display: flex; flex-direction: column; gap: 6px; }
+.step { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+code { font: 13px var(--mono); background: var(--soft); padding: 2px 6px; border-radius: 4px; }
+.user-link { color: var(--muted); text-decoration: none; padding: 8px 4px; }
+.user-link:hover, .user-link[aria-current] { color: var(--text); text-decoration: underline; }
 
 .foot { padding-bottom: 32px; font-size: 13px; color: var(--muted); }
 .foot a { color: var(--muted); }

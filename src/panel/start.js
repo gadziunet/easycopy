@@ -25,8 +25,10 @@ Opcje (w nawiasie zmienna środowiskowa):
       --host <adres>            adres nasłuchu (HOST, domyślnie 0.0.0.0)
   -h, --help                    ta pomoc
 
+Przy pierwszym uruchomieniu panel poprosi o utworzenie konta administratora.
+Zapomniane hasło: easycopy reset-password
+
 Inne zmienne środowiskowe:
-  PANEL_PASSWORD     hasło do panelu (domyślnie brak)
   ARCHIVE_PASSWORD   hasło do archiwów (domyślnie brak)
   ARCHIVE_BASE_URL   adres archiwów w linkach panelu, np. za reverse proxy
                      (domyślnie http://<host panelu>:<port archiwów>)
@@ -93,7 +95,6 @@ export async function runStart(argv) {
     archiveRoot,
     archivePort,
     archiveBaseUrl: env.ARCHIVE_BASE_URL || null,
-    password: env.PANEL_PASSWORD || null,
     warning,
     log,
   });
@@ -130,10 +131,11 @@ export async function runStart(argv) {
 
   const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   console.log(`EasyCopy ${VERSION}`);
-  console.log(`  Panel:     http://${shown}:${panelPort}/${env.PANEL_PASSWORD ? ' (z hasłem)' : ''}`);
+  console.log(`  Panel:     http://${shown}:${panelPort}/`);
   console.log(`  Archiwa:   http://${shown}:${archivePort}/${env.ARCHIVE_PASSWORD ? ' (z hasłem)' : ''}`);
   console.log(`  Dane:      ${dataDir}`);
   console.log(`  Kopie:     ${archiveRoot}`);
+  if (db.countUsers() === 0) console.log('  Pierwsze uruchomienie: otwórz panel i utwórz konto administratora.');
 
   const stop = () => {
     if (stopping) return;

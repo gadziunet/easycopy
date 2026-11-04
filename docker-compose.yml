@@ -23,8 +23,8 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Warsaw
-      # hasła – odkomentuj, żeby włączyć (przy archiwach nazwa użytkownika dowolna)
-      # - PANEL_PASSWORD=zmien-to-haslo
+      # konto do panelu zakładasz przy pierwszym otwarciu panelu w przeglądarce;
+      # hasło do samych archiwów (nazwa użytkownika dowolna) – odkomentuj, żeby włączyć:
       # - ARCHIVE_PASSWORD=zmien-to-haslo
       # adres archiwów w linkach panelu, gdy oba porty są za reverse proxy:
       # - ARCHIVE_BASE_URL=https://archiwa.example.com

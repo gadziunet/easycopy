@@ -116,7 +116,7 @@ function csrfForm(action, label, { cls = 'btn', confirm = null, fields = {} } = 
 
 // ---------- układ strony ----------
 
-export function layout({ title, active = '', body, auth = false, warning = null }) {
+export function layout({ title, active = '', body, user = null, warning = null }) {
   const nav = [
     ['/', 'Archiwa', 'archiwa'],
     ['/zadania', 'Zadania', 'zadania'],
@@ -139,7 +139,7 @@ export function layout({ title, active = '', body, auth = false, warning = null 
 <a href="/" class="brand">${LOGO}<span>EasyCopy</span></a>
 <nav aria-label="Główne">${nav}</nav>
 <div class="bar-actions">
-${auth ? csrfForm('/wyloguj', 'Wyloguj', { cls: 'link' }) : ''}
+${user ? `<a href="/konto" class="user-link"${active === 'konto' ? ' aria-current="page"' : ''}>${e(user.username)}</a>${csrfForm('/wyloguj', 'Wyloguj', { cls: 'link' })}` : ''}
 <a href="/nowa" class="btn primary">${ICON_PLUS}Nowa kopia</a>
 </div>
 </div>
@@ -435,24 +435,75 @@ export function logRow(l) {
   return `<div class="log-row ${code}"><span class="sub">${e(formatTime(l.at))}</span><span class="log-msg">${e(l.message)}</span></div>`;
 }
 
-// ---------- logowanie i błędy ----------
+// ---------- instalacja, logowanie, konto ----------
 
-export function loginPage({ error = null }) {
+/** Prosta strona bez menu (instalacja, logowanie). */
+function authShell(title, body) {
   return `<!doctype html>
 <html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>Logowanie – EasyCopy</title>
+<meta name="robots" content="noindex"><title>${e(title)} – EasyCopy</title>
 <link rel="stylesheet" href="/static/app.css?v=${e(VERSION)}"></head>
 <body class="center">
 <main class="card pad login stack">
 <div class="brand">${LOGO}<span>EasyCopy</span></div>
-<h1>Logowanie</h1>
-${error ? `<p class="notice" role="alert">${e(error)}</p>` : ''}
-<form method="post" action="/logowanie" class="stack">
-${field('password', 'Hasło', '<input id="password" name="password" type="password" autocomplete="current-password" required autofocus>')}
-<button type="submit" class="btn primary">Zaloguj</button>
-</form>
+${body}
 </main>
 </body></html>`;
+}
+
+function errorList(errors) {
+  const list = Object.values(errors).filter(Boolean);
+  return list.length ? `<p class="notice" role="alert">${list.map(e).join('<br>')}</p>` : '';
+}
+
+const passwordInput = (name, autocomplete, extra = '') =>
+  `<input id="${name}" name="${name}" type="password" autocomplete="${autocomplete}" minlength="8" required${extra}>`;
+
+export function setupPage({ values = {}, errors = {} }) {
+  return authShell('Instalacja', `<div class="stack-tight">
+<p class="step">Pierwsze uruchomienie</p>
+<h1>Utwórz konto administratora</h1>
+<p class="sub">To konto będzie potrzebne do logowania w panelu. Hasło zapisuje się w bazie w postaci zaszyfrowanej (scrypt).</p>
+</div>
+${errorList(errors)}
+<form method="post" action="/instalacja" class="stack" novalidate>
+${field('username', 'Login', `<input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" value="${e(values.username ?? 'admin')}" required${errors.username ? ' aria-invalid="true"' : ''}>`, { hint: '3–32 znaki: litery, cyfry, kropka, myślnik' })}
+${field('password', 'Hasło', passwordInput('password', 'new-password', errors.password ? ' aria-invalid="true"' : ''), { hint: 'Co najmniej 8 znaków' })}
+${field('repeat', 'Powtórz hasło', passwordInput('repeat', 'new-password'))}
+<button type="submit" class="btn primary">Utwórz konto i przejdź do panelu</button>
+</form>
+<p class="sub">Zapomniane hasło zresetujesz poleceniem <code>easycopy reset-password</code>.</p>`);
+}
+
+export function loginPage({ error = null, username = '' }) {
+  return authShell('Logowanie', `<h1>Logowanie</h1>
+${error ? `<p class="notice" role="alert">${e(error)}</p>` : ''}
+<form method="post" action="/logowanie" class="stack">
+${field('username', 'Login', `<input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" value="${e(username)}" required${username ? '' : ' autofocus'}>`)}
+${field('password', 'Hasło', `<input id="password" name="password" type="password" autocomplete="current-password" required${username ? ' autofocus' : ''}>`)}
+<button type="submit" class="btn primary">Zaloguj</button>
+</form>`);
+}
+
+export function accountPage({ user, errors = {}, saved = false }) {
+  return `<div class="narrow">
+<div><h1>Konto</h1><p class="lead">Zalogowano jako <strong>${e(user.username)}</strong>.</p></div>
+${saved ? '<p class="notice" role="status">Hasło zmienione. Inne urządzenia zostały wylogowane.</p>' : ''}
+${errorList(errors)}
+<form method="post" action="/konto" class="card pad stack">
+<h2>Zmiana hasła</h2>
+${field('current', 'Obecne hasło', '<input id="current" name="current" type="password" autocomplete="current-password" required>')}
+<div class="grid2">
+${field('password', 'Nowe hasło', passwordInput('password', 'new-password'), { hint: 'Co najmniej 8 znaków' })}
+${field('repeat', 'Powtórz nowe hasło', passwordInput('repeat', 'new-password'))}
+</div>
+<div class="form-actions"><button type="submit" class="btn primary">Zmień hasło</button></div>
+</form>
+<section class="card pad stack">
+<h2>Konto</h2>
+<dl class="dl"><dt>Utworzone</dt><dd>${e(formatDate(user.created_at))}</dd><dt>Ostatnie logowanie</dt><dd>${e(formatDate(user.last_login_at))}</dd></dl>
+</section>
+</div>`;
 }
 
 export function messagePage(title, text) {

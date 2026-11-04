@@ -11,6 +11,7 @@ import { parseJobForm, formFromJob } from '../src/panel/job-form.js';
 import { runJob } from '../src/panel/runner.js';
 import { workerLoop } from '../src/panel/worker-process.js';
 import { createPanelServer } from '../src/panel/panel-server.js';
+import { runResetPassword } from '../src/panel/reset-password.js';
 import { startTestSite } from './helpers/test-site.js';
 
 let tmp;
@@ -121,9 +122,11 @@ function request(port, method, pathname, { headers = {}, body = null } = {}) {
   });
 }
 
-async function withPanel(options, fn) {
-  const db = openDatabase(':memory:');
-  const server = createPanelServer({ db, archiveRoot: path.join(tmp, 'panel-a'), ...options });
+const cookieOf = (res) => (res.headers['set-cookie'] ?? [])[0]?.split(';')[0] ?? null;
+
+async function withPanel(fn, { dbFile = ':memory:' } = {}) {
+  const db = openDatabase(dbFile);
+  const server = createPanelServer({ db, archiveRoot: path.join(tmp, 'panel-a') });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const origin = `http://127.0.0.1:${port}`;
@@ -140,70 +143,166 @@ async function withPanel(options, fn) {
   }
 }
 
-test('panel: strony, dodanie zadania, ochrona formularzy', async () => {
-  await withPanel({}, async ({ port, db, form }) => {
+/** Zakłada konto w kreatorze i zwraca ciasteczko sesji. */
+async function setup(port, form, username = 'admin', password = 'tajne-haslo') {
+  const res = await request(port, 'POST', '/instalacja', form({ username, password, repeat: password }));
+  assert.equal(res.status, 303);
+  return cookieOf(res);
+}
+
+test('kreator instalacji: pierwsze konto, tylko raz', async () => {
+  await withPanel(async ({ port, db, form }) => {
+    // pusta baza → wszystko prowadzi do kreatora
     const home = await request(port, 'GET', '/');
+    assert.equal(home.status, 303);
+    assert.equal(home.headers.location, '/instalacja');
+    assert.equal((await request(port, 'GET', '/logowanie')).headers.location, '/instalacja');
+    assert.equal((await request(port, 'GET', '/api/aktywne')).status, 503);
+    assert.equal((await request(port, 'GET', '/healthz')).status, 200, 'healthcheck działa przed instalacją');
+    const page = await request(port, 'GET', '/instalacja');
+    assert.equal(page.status, 200);
+    assert.ok(page.body.includes('Utwórz konto administratora'));
+
+    // walidacja
+    const short = await request(port, 'POST', '/instalacja', form({ username: 'ad', password: 'krotkie', repeat: 'inne' }));
+    assert.equal(short.status, 422);
+    assert.ok(short.body.includes('Login: 3–32 znaki'));
+    assert.ok(short.body.includes('co najmniej 8 znaków'));
+    const mismatch = await request(port, 'POST', '/instalacja', form({ username: 'admin', password: 'tajne-haslo', repeat: 'inne-haslo' }));
+    assert.ok(mismatch.body.includes('Hasła nie są takie same'));
+    // z obcej strony
+    assert.equal((await request(port, 'POST', '/instalacja', form({ username: 'zly', password: 'tajne-haslo', repeat: 'tajne-haslo' }, { origin: 'https://zla-strona.example' }))).status, 403);
+    assert.equal(db.countUsers(), 0);
+
+    const cookie = await setup(port, form);
+    assert.ok(cookie, 'po instalacji od razu zalogowany');
+    assert.equal(db.countUsers(), 1);
+    const user = db.getUserByName('admin');
+    assert.match(user.password_hash, /^scrypt\$/, 'hasło zapisane jako skrót scrypt');
+    assert.ok(!user.password_hash.includes('tajne-haslo'));
+
+    // kreator nie działa drugi raz
+    assert.equal((await request(port, 'GET', '/instalacja')).headers.location, '/');
+    const again = await request(port, 'POST', '/instalacja', form({ username: 'intruz', password: 'tajne-haslo', repeat: 'tajne-haslo' }));
+    assert.equal(again.status, 303);
+    assert.equal(db.countUsers(), 1);
+    assert.equal(db.getUserByName('intruz'), null);
+
+    const logged = await request(port, 'GET', '/', { headers: { cookie } });
+    assert.equal(logged.status, 200);
+    assert.ok(logged.body.includes('admin'), 'login w nagłówku');
+  });
+});
+
+test('logowanie, wylogowanie i zmiana hasła', async () => {
+  await withPanel(async ({ port, form }) => {
+    const first = await setup(port, form);
+    assert.equal((await request(port, 'GET', '/')).headers.location, '/logowanie', 'bez ciasteczka – logowanie');
+    assert.equal((await request(port, 'GET', '/api/aktywne')).status, 401);
+
+    const bad = await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'zle-haslo' }));
+    assert.equal(bad.status, 401);
+    assert.ok(bad.body.includes('Nieprawidłowy login lub hasło'));
+    assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'nie-ma', password: 'tajne-haslo' }))).status, 401);
+
+    const good = await request(port, 'POST', '/logowanie', form({ username: 'ADMIN', password: 'tajne-haslo' }));
+    assert.equal(good.status, 303, 'login bez rozróżniania wielkości liter');
+    assert.match(good.headers['set-cookie'][0], /HttpOnly; SameSite=Strict/);
+    const second = cookieOf(good);
+    assert.equal((await request(port, 'GET', '/', { headers: { cookie: second } })).status, 200);
+    assert.equal((await request(port, 'GET', '/', { headers: { cookie: 'ec_session=1.9999999999.podrobione' } })).status, 303);
+
+    // zmiana hasła: złe obecne hasło
+    const wrong = await request(port, 'POST', '/konto', { ...form({ current: 'zle', password: 'nowe-haslo-123', repeat: 'nowe-haslo-123' }, { cookie: second }) });
+    assert.equal(wrong.status, 422);
+    assert.ok(wrong.body.includes('Obecne hasło jest nieprawidłowe'));
+    // poprawnie – inne sesje wygasają, ta dostaje nowe ciasteczko
+    const changed = await request(port, 'POST', '/konto', form({ current: 'tajne-haslo', password: 'nowe-haslo-123', repeat: 'nowe-haslo-123' }, { cookie: second }));
+    assert.equal(changed.status, 303);
+    const third = cookieOf(changed);
+    assert.equal((await request(port, 'GET', '/', { headers: { cookie: first } })).status, 303, 'stara sesja unieważniona');
+    assert.equal((await request(port, 'GET', '/', { headers: { cookie: third } })).status, 200);
+    assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'tajne-haslo' }))).status, 401);
+    assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'nowe-haslo-123' }))).status, 303);
+
+    const out = await request(port, 'POST', '/wyloguj', form({}, { cookie: third }));
+    assert.match(out.headers['set-cookie'][0], /Max-Age=0/);
+  });
+});
+
+test('panel: strony, dodanie zadania, ochrona formularzy', async () => {
+  await withPanel(async ({ port, db, form }) => {
+    const cookie = await setup(port, form);
+    const get = (p) => request(port, 'GET', p, { headers: { cookie } });
+    const post = (p, data, extra = {}) => request(port, 'POST', p, form(data, { cookie, ...extra }));
+
+    const home = await get('/');
     assert.equal(home.status, 200);
     assert.match(home.headers['content-security-policy'], /script-src 'self'/);
     assert.ok(home.body.includes('Nie masz jeszcze żadnych kopii'));
-    assert.equal((await request(port, 'GET', '/nowa')).status, 200);
+    assert.equal((await get('/nowa')).status, 200);
+    assert.equal((await get('/konto')).status, 200);
     assert.equal((await request(port, 'GET', '/static/app.css')).status, 200);
 
-    // formularz z obcej strony
-    const csrf = await request(port, 'POST', '/nowa', form({ url: 'https://www.example.com/' }, { origin: 'https://zla-strona.example' }));
+    const csrf = await post('/nowa', { url: 'https://www.example.com/' }, { origin: 'https://zla-strona.example' });
     assert.equal(csrf.status, 403);
     assert.equal(db.listJobs().length, 0);
 
-    const invalid = await request(port, 'POST', '/nowa', form({ url: '' }));
+    const invalid = await post('/nowa', { url: '' });
     assert.equal(invalid.status, 422);
     assert.ok(invalid.body.includes('Podaj pełny adres strony'));
 
-    const created = await request(port, 'POST', '/nowa', form({ url: 'https://www.example.com/', preset: 'normalny', depth: '1', maxPages: '10', maxSize: '0', sameDomain: 'on', respectRobots: 'on', ua: 'easycopy', os: 'win' }));
+    const created = await post('/nowa', { url: 'https://www.example.com/', preset: 'normalny', depth: '1', maxPages: '10', maxSize: '0', sameDomain: 'on', respectRobots: 'on', ua: 'easycopy', os: 'win' });
     assert.equal(created.status, 303);
     assert.equal(created.headers.location, '/zadania/1');
     const job = db.getJob(1);
     assert.equal(job.name, 'example-com');
     assert.equal(job.options.maxDepth, 1);
 
-    const page = await request(port, 'GET', '/zadania/1');
+    const page = await get('/zadania/1');
     assert.equal(page.status, 200);
     assert.ok(page.body.includes('data-job-status="queued"'));
-    const home2 = await request(port, 'GET', '/');
-    assert.ok(home2.body.includes('W toku'));
+    assert.ok((await get('/')).body.includes('W toku'));
 
-    const api = JSON.parse((await request(port, 'GET', '/api/aktywne')).body);
+    const api = JSON.parse((await get('/api/aktywne')).body);
     assert.equal(api.length, 1);
     assert.equal(api[0].statusLabel, 'W kolejce');
 
-    // ponowienie jako „delikatny” z opóźnieniem i anulowanie
-    const retry = await request(port, 'POST', '/zadania/1/ponow', form({ preset: 'delikatny', delay: '600' }));
+    const retry = await post('/zadania/1/ponow', { preset: 'delikatny', delay: '600' });
     assert.equal(retry.headers.location, '/zadania/2');
     assert.equal(db.getJob(2).options.preset, 'delikatny');
     assert.ok(db.getJob(2).runAt > Date.now() + 500_000);
     assert.equal(db.getJob(2).retryOf, 1);
-    await request(port, 'POST', '/zadania/1/anuluj', form({}));
+    await post('/zadania/1/anuluj', {});
     assert.equal(db.getJob(1).status, 'cancelled');
 
-    assert.equal((await request(port, 'GET', '/zadania/999')).status, 404);
+    assert.equal((await get('/zadania/999')).status, 404);
   });
 });
 
-test('panel: hasło', async () => {
-  await withPanel({ password: 'tajne-haslo' }, async ({ port, form }) => {
-    const home = await request(port, 'GET', '/');
-    assert.equal(home.status, 303);
-    assert.equal(home.headers.location, '/logowanie');
-    assert.equal((await request(port, 'GET', '/api/aktywne')).status, 401);
-    assert.equal((await request(port, 'GET', '/healthz')).status, 200);
+test('reset-password: nowe hasło z wiersza poleceń', async () => {
+  const dataDir = path.join(tmp, 'reset');
+  const dbFile = path.join(dataDir, 'easycopy.db');
+  await withPanel(async ({ port, form }) => {
+    await setup(port, form, 'admin', 'stare-haslo-1');
+  }, { dbFile });
 
-    const bad = await request(port, 'POST', '/logowanie', form({ password: 'zle' }));
-    assert.equal(bad.status, 401);
-    const good = await request(port, 'POST', '/logowanie', form({ password: 'tajne-haslo' }));
-    assert.equal(good.status, 303);
-    const cookie = good.headers['set-cookie'][0].split(';')[0];
-    assert.match(good.headers['set-cookie'][0], /HttpOnly; SameSite=Strict/);
-    assert.equal((await request(port, 'GET', '/', { headers: { cookie } })).status, 200);
-    // podrobione ciasteczko
-    assert.equal((await request(port, 'GET', '/', { headers: { cookie: 'ec_session=9999999999.abc' } })).status, 303);
-  });
+  const lines = [];
+  const orig = console.log;
+  console.log = (m) => lines.push(String(m));
+  try {
+    await runResetPassword(['--data-dir', dataDir]);
+    await runResetPassword(['admin', '--data-dir', dataDir, '--password', 'reczne-haslo-9']);
+  } finally {
+    console.log = orig;
+  }
+  const generated = /Hasło: (\S+)/.exec(lines.join('\n'))[1];
+  assert.equal(generated.length, 16);
+  await assert.rejects(runResetPassword(['nie-ma', '--data-dir', dataDir]), /Nie ma konta/);
+  await assert.rejects(runResetPassword(['admin', '--data-dir', dataDir, '--password', 'krotkie']), /co najmniej 8/);
+
+  await withPanel(async ({ port, form }) => {
+    assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'stare-haslo-1' }))).status, 401);
+    assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'reczne-haslo-9' }))).status, 303);
+  }, { dbFile });
 });
