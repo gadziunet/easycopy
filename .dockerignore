@@ -1,0 +1,12 @@
+.git
+.github
+.vscode
+node_modules
+archiwa
+data
+test
+docs
+*.log
+.env
+.DS_Store
+docker-compose*.yml

@@ -1,0 +1,30 @@
+# EasyCopy – przykładowa konfiguracja Docker Compose.
+#
+# Start:        docker compose up -d
+# Nowa kopia:   docker compose exec easycopy easycopy https://www.example.com/
+# Archiwa:      http://<adres-serwera>:8081/
+
+services:
+  easycopy:
+    # do czasu wydania 0.1.0 dostępny jest tylko tag „edge” (bieżąca gałąź main);
+    # po wydaniu zmień na :latest albo konkretną wersję, np. :0.1.0
+    image: ghcr.io/gadziunet/easycopy:edge
+    # albo zbuduj obraz lokalnie z tego repozytorium:
+    # build: .
+    container_name: easycopy
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8081:8081"
+    environment:
+      # użytkownik, jako który zapisywane są pliki (Unraid: PUID=99, PGID=100)
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Warsaw
+      # hasło do archiwów (nazwa użytkownika dowolna) – odkomentuj, żeby włączyć
+      # - ARCHIVE_PASSWORD=zmien-to-haslo
+    volumes:
+      - ./data:/data
+      # Unraid: dane aplikacji na cache, a duże archiwa na macierzy, np.:
+      # - /mnt/cache/appdata/easycopy:/data
+      # - /mnt/user/archiwa-www:/data/archiwa
