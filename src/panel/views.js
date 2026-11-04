@@ -256,7 +256,7 @@ export function newJobPage({ values, errors = {} }) {
     .join('');
   const advancedOpen = Boolean(errors.ua || errors.os || errors.customUa || values.skip || values.exclude || !values.respectRobots || values.allowJs || values.externalNewTab || values.ua !== 'easycopy');
 
-  return `<div class="narrow">
+  return `<div class="narrow wide">
 <a class="back" href="/">← Archiwa</a>
 <h1>Nowa kopia strony</h1>
 <p class="lead">Podaj adres i wybierz tempo. Resztę możesz zostawić domyślną.</p>
