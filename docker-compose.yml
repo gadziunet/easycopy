@@ -1,8 +1,9 @@
 # EasyCopy – przykładowa konfiguracja Docker Compose.
 #
 # Start:        docker compose up -d
-# Nowa kopia:   docker compose exec easycopy easycopy https://www.example.com/
+# Panel:        http://<adres-serwera>:8080/
 # Archiwa:      http://<adres-serwera>:8081/
+# Kopia z CLI:  docker compose exec easycopy easycopy https://www.example.com/
 
 services:
   easycopy:
@@ -15,14 +16,18 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "8081:8081"
+      - "8080:8080"   # panel
+      - "8081:8081"   # archiwa (osobny port = osobne źródło, bezpieczniej)
     environment:
       # użytkownik, jako który zapisywane są pliki (Unraid: PUID=99, PGID=100)
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Warsaw
-      # hasło do archiwów (nazwa użytkownika dowolna) – odkomentuj, żeby włączyć
+      # hasła – odkomentuj, żeby włączyć (przy archiwach nazwa użytkownika dowolna)
+      # - PANEL_PASSWORD=zmien-to-haslo
       # - ARCHIVE_PASSWORD=zmien-to-haslo
+      # adres archiwów w linkach panelu, gdy oba porty są za reverse proxy:
+      # - ARCHIVE_BASE_URL=https://archiwa.example.com
     volumes:
       - ./data:/data
       # Unraid: dane aplikacji na cache, a duże archiwa na macierzy, np.:

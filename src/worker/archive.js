@@ -47,7 +47,7 @@ export async function archiveSite({ archiveRoot, name, onCrawler, ...options }) 
   const archiveName = name ? slugify(name) : defaultName(options.startUrl);
   const { siteDir, version, dir } = await createVersionDir(archiveRoot, archiveName);
   const crawler = new Crawler({ ...options, outDir: dir });
-  onCrawler?.(crawler);
+  onCrawler?.(crawler, { name: archiveName, version, dir });
   const manifest = await crawler.run();
   if (manifest.status !== 'error') await updateLatest(siteDir, version);
   return { name: archiveName, version, dir, manifest };

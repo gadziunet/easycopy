@@ -14,7 +14,8 @@ const HELP = `EasyCopy ${VERSION} – kopia strony WWW do przeglądania offline
 
 Użycie:
   easycopy <adres> [opcje]      zrób kopię strony
-  easycopy serve [opcje]        uruchom serwer archiwów (szczegóły: easycopy serve --help)
+  easycopy start [opcje]        uruchom panel, serwer archiwów i workera (easycopy start --help)
+  easycopy serve [opcje]        uruchom sam serwer archiwów (easycopy serve --help)
 
 Podstawowe:
   -o, --out <katalog>        katalog archiwów (ARCHIVE_DIR, domyślnie ./archiwa)
@@ -74,8 +75,11 @@ function main() {
     process.exit(1);
   }
 
-  if (process.argv[2] === 'serve') {
-    runServe(process.argv.slice(3)).catch((err) => {
+  // panel ładujemy dopiero przy „start” – samo robienie kopii nie potrzebuje bazy SQLite
+  const runStart = (args) => import('./panel/start.js').then((m) => m.runStart(args));
+  const command = { serve: runServe, start: runStart }[process.argv[2]];
+  if (command) {
+    command(process.argv.slice(3)).catch((err) => {
       console.error(`Błąd: ${err.message}`);
       process.exit(1);
     });

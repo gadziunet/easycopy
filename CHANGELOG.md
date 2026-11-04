@@ -11,4 +11,9 @@
 - Wersje kopii z datą i dowiązaniem `latest`, `manifest.json` w każdej kopii.
 - Serwer archiwów: lista kopii, `/a/<nazwa>/`, nagłówek CSP sandbox, ochrona przed
   wyjściem poza katalog, Range, gzip/brotli, ETag, opcjonalne hasło.
+- Panel WWW (`easycopy start`): lista archiwów, nowa kopia z presetami i ustawieniami
+  zaawansowanymi, kolejka i historia zadań, postęp i dziennik na żywo, anulowanie, ponowienie
+  (także „jako Delikatny” lub za 10 minut), opcjonalne hasło, ochrona formularzy.
+- Worker w osobnym procesie, kolejka w bazie SQLite (wbudowany `node:sqlite`), ostrzeżenie
+  o bazie na udziale sieciowym.
 - Obraz Docker (amd64, arm64) z PUID/PGID i healthcheckiem, przykładowy `docker-compose.yml`.

@@ -5,8 +5,9 @@ w stylu SiteSuckera albo WebCopy, z prostymi presetami zamiast dziesiątek opcji
 Działa w jednym kontenerze Docker.
 
 > **Status:** wersja rozwojowa – pierwsze wydanie (0.1.0) jeszcze nie powstało.
-> Działa robienie kopii z wiersza poleceń i serwer archiwów. Panel WWW (zadania, harmonogram,
-> postęp) jest w przygotowaniu. Do czasu wydania obraz ma tylko tag `edge` (bieżąca gałąź `main`).
+> Działa panel WWW, robienie kopii i serwer archiwów. Harmonogram (kopie cykliczne)
+> i powiadomienia są w przygotowaniu. Do czasu wydania obraz ma tylko tag `edge`
+> (bieżąca gałąź `main`).
 
 ## Co potrafi
 
@@ -21,7 +22,8 @@ Działa w jednym kontenerze Docker.
   i `Crawl-delay`, a przy sygnałach blokady (HTTP 429, 503 z `Retry-After`, strona weryfikacji
   Cloudflare) zwalnia albo wstrzymuje pobieranie. **Nie próbuje obchodzić zabezpieczeń.**
 - Trzyma kolejne wersje kopii i serwuje je z bezpiecznymi nagłówkami (sandbox).
-- Bez zależności z npm – wystarczy Node.js 20 lub nowszy albo Docker.
+- Ma prosty panel WWW: nowa kopia w kilku kliknięciach, kolejka zadań, postęp na żywo, dziennik.
+- Bez zależności z npm – wystarczy Node.js 22.13 lub nowszy albo Docker.
 
 ## Instalacja: Docker Compose
 
@@ -33,11 +35,13 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "8081:8081"
+      - "8080:8080"   # panel
+      - "8081:8081"   # archiwa
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Warsaw
+      # - PANEL_PASSWORD=zmien-to-haslo
       # - ARCHIVE_PASSWORD=zmien-to-haslo
     volumes:
       - ./data:/data
@@ -47,16 +51,21 @@ services:
 docker compose up -d
 ```
 
-Lista archiwów: `http://<adres-serwera>:8081/`.
+- **Panel:** `http://<adres-serwera>:8080/` – tu dodajesz kopie i śledzisz postęp.
+- **Archiwa:** `http://<adres-serwera>:8081/` – tu otwierają się gotowe kopie (panel linkuje do nich).
 
-### Robienie kopii
+Panel i archiwa działają na osobnych portach celowo: zarchiwizowane strony to cudzy kod,
+a osobny port oznacza dla przeglądarki osobne źródło – kopia nie ma dostępu do sesji panelu.
+
+### Robienie kopii z wiersza poleceń
+
+Zamiast panelu możesz też użyć polecenia:
 
 ```bash
-docker compose exec easycopy easycopy https://www.example.com/
 docker compose exec easycopy easycopy https://www.example.com/ --preset delikatny --depth 2
 ```
 
-Kopia trafia do `./data/archiwa/example-com/<data>/` i od razu jest widoczna na liście.
+Kopia trafia do `./data/archiwa/example-com/<data>/` i od razu jest widoczna w panelu.
 Pliki zapisują się jako użytkownik z `PUID`/`PGID`, nie jako root.
 
 ### Zmienne środowiskowe
@@ -64,17 +73,21 @@ Pliki zapisują się jako użytkownik z `PUID`/`PGID`, nie jako root.
 | Zmienna            | Domyślnie       | Opis                                                       |
 |--------------------|-----------------|------------------------------------------------------------|
 | `PUID`, `PGID`     | `1000`          | właściciel plików (Unraid: `99` i `100`)                   |
-| `TZ`               | UTC             | strefa czasowa dat na liście archiwów                      |
+| `TZ`               | UTC             | strefa czasowa dat w panelu i na liście archiwów           |
+| `PANEL_PASSWORD`   | brak            | hasło do panelu                                            |
 | `ARCHIVE_PASSWORD` | brak            | hasło do archiwów (nazwa użytkownika dowolna)              |
+| `ARCHIVE_BASE_URL` | `http://<host panelu>:8081` | adres archiwów w linkach panelu (np. za reverse proxy) |
+| `PANEL_PORT`       | `8080`          | port panelu w kontenerze                                   |
 | `ARCHIVE_PORT`     | `8081`          | port serwera archiwów w kontenerze                         |
-| `ARCHIVE_DIR`      | `/data/archiwa` | katalog archiwów w kontenerze                              |
+| `DATA_DIR`         | `/data`         | baza panelu (SQLite)                                       |
+| `ARCHIVE_DIR`      | `/data/archiwa` | katalog archiwów                                           |
 
 ### Unraid
 
 - Ustaw `PUID=99` i `PGID=100`.
 - Katalog `/data` trzymaj na puli cache, np. `/mnt/cache/appdata/easycopy` – nie w `/mnt/user/…`.
-  Przyszły panel będzie tam miał bazę SQLite, a SQLite nie lubi udziałów sieciowych (NFS, SMB)
-  i katalogów `/mnt/user` (FUSE).
+  Jest tam baza panelu (SQLite), a SQLite na udziałach sieciowych (NFS, SMB) i w `/mnt/user` (FUSE)
+  może się uszkodzić. Jeśli EasyCopy wykryje taki system plików, pokaże ostrzeżenie w panelu.
 - Duże archiwa możesz trzymać na macierzy, podpinając je osobno:
 
 ```yaml
@@ -88,8 +101,9 @@ Pliki zapisują się jako użytkownik z `PUID`/`PGID`, nie jako root.
 ```bash
 git clone https://github.com/gadziunet/easycopy.git
 cd easycopy
-node src/cli.js https://www.example.com/          # kopia do ./archiwa
-node src/cli.js serve                             # serwer archiwów na porcie 8081
+node src/cli.js start                             # panel (8080), archiwa (8081) i worker, dane w ./data
+node src/cli.js https://www.example.com/          # albo sama kopia z wiersza poleceń do ./archiwa
+node src/cli.js serve                             # albo sam serwer archiwów
 ```
 
 ## Przykłady
@@ -105,7 +119,7 @@ easycopy https://www.example.com/ --preset szybki --depth bez-limitu --max-pages
 easycopy https://www.example.com/ --ua safari --os ios
 ```
 
-Wszystkie opcje: `easycopy --help` i `easycopy serve --help`.
+Wszystkie opcje: `easycopy --help`, `easycopy start --help` i `easycopy serve --help`.
 
 ## Presety tempa
 

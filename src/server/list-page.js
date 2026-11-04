@@ -22,7 +22,7 @@ function formatDate(iso) {
   return d.toLocaleString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function plural(n, one, few, many) {
+export function plural(n, one, few, many) {
   if (n === 1) return one;
   const d = n % 10;
   const h = n % 100;
