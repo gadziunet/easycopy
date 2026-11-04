@@ -21,7 +21,8 @@ Opcje (w nawiasie zmienna środowiskowa):
       --data-dir <katalog>      baza i ustawienia (DATA_DIR, domyślnie ./data)
       --archive-dir <katalog>   archiwa (ARCHIVE_DIR, domyślnie <data-dir>/archiwa)
       --panel-port <port>       port panelu (PANEL_PORT, domyślnie 8080)
-      --archive-port <port>     port serwera archiwów (ARCHIVE_PORT, domyślnie 8081)
+      --archive-port <port>     port serwera archiwów (ARCHIVE_PORT, domyślnie 8081;
+                                0 = jeden port: archiwa w panelu pod /a/…)
       --host <adres>            adres nasłuchu (HOST, domyślnie 0.0.0.0)
   -h, --help                    ta pomoc
 
@@ -36,7 +37,8 @@ Inne zmienne środowiskowe:
 
 const WORKER_PATH = fileURLToPath(new URL('./worker-process.js', import.meta.url));
 
-function port(value, name) {
+function port(value, name, { allowOff = false } = {}) {
+  if (allowOff && /^(0|off|nie|none)$/i.test(String(value))) return 0;
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`${name}: nieprawidłowy port „${value}”`);
   return n;
@@ -73,7 +75,7 @@ export async function runStart(argv) {
   const dataDir = path.resolve(o['data-dir'] ?? env.DATA_DIR ?? 'data');
   const archiveRoot = path.resolve(o['archive-dir'] ?? env.ARCHIVE_DIR ?? path.join(dataDir, 'archiwa'));
   const panelPort = port(o['panel-port'] ?? env.PANEL_PORT ?? 8080, 'PANEL_PORT');
-  const archivePort = port(o['archive-port'] ?? env.ARCHIVE_PORT ?? 8081, 'ARCHIVE_PORT');
+  const archivePort = port(o['archive-port'] ?? env.ARCHIVE_PORT ?? 8081, 'ARCHIVE_PORT', { allowOff: true });
   const host = o.host ?? env.HOST ?? '0.0.0.0';
   const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 
@@ -89,18 +91,19 @@ export async function runStart(argv) {
   if (recovered) log(`Oznaczono ${recovered} przerwane zadanie(a) po restarcie`);
   db.pruneLogs();
 
-  const archiveServer = createArchiveServer({ archiveRoot, password: env.ARCHIVE_PASSWORD || null, log: () => {} });
+  const archiveServer = archivePort ? createArchiveServer({ archiveRoot, password: env.ARCHIVE_PASSWORD || null, log: () => {} }) : null;
   const panelServer = createPanelServer({
     db,
     archiveRoot,
     archivePort,
+    archivePassword: env.ARCHIVE_PASSWORD || null,
     archiveBaseUrl: env.ARCHIVE_BASE_URL || null,
     warning,
     log,
   });
 
   try {
-    await listen(archiveServer, archivePort, host);
+    if (archiveServer) await listen(archiveServer, archivePort, host);
     await listen(panelServer, panelPort, host);
   } catch (err) {
     console.error(err.code === 'EADDRINUSE' ? `Błąd: port ${err.port} jest zajęty.` : `Błąd: ${err.message}`);
@@ -132,7 +135,8 @@ export async function runStart(argv) {
   const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   console.log(`EasyCopy ${VERSION}`);
   console.log(`  Panel:     http://${shown}:${panelPort}/`);
-  console.log(`  Archiwa:   http://${shown}:${archivePort}/${env.ARCHIVE_PASSWORD ? ' (z hasłem)' : ''}`);
+  const archivesAt = archivePort ? `http://${shown}:${archivePort}/` : `http://${shown}:${panelPort}/a/… (jeden port)`;
+  console.log(`  Archiwa:   ${archivesAt}${env.ARCHIVE_PASSWORD ? ' (z hasłem)' : ''}`);
   console.log(`  Dane:      ${dataDir}`);
   console.log(`  Kopie:     ${archiveRoot}`);
   if (db.countUsers() === 0) console.log('  Pierwsze uruchomienie: otwórz panel i utwórz konto administratora.');
@@ -143,9 +147,9 @@ export async function runStart(argv) {
     log('Zatrzymuję… (bieżące pobieranie zostanie domknięte)');
     const finish = () => {
       panelServer.close();
-      archiveServer.close();
+      archiveServer?.close();
       panelServer.closeAllConnections?.();
-      archiveServer.closeAllConnections?.();
+      archiveServer?.closeAllConnections?.();
       db.close();
       process.exit(0);
     };

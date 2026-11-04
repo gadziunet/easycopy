@@ -219,7 +219,9 @@ ${jobId ? `<a class="btn" href="/zadania/${jobId}">Szczegóły</a>` : ''}
 </div>
 ${active}
 <section class="card" aria-label="Wszystkie archiwa">${table}</section>
-<p class="sub">Archiwa są dostępne w sieci lokalnej pod adresem <span class="mono">${e(archiveBase)}</span>.</p>`;
+<p class="sub">${archiveBase
+    ? `Archiwa są dostępne w sieci lokalnej pod adresem <span class="mono">${e(archiveBase)}</span>.`
+    : 'Archiwa są dostępne pod tym samym adresem co panel, w ścieżce <span class="mono">/a/&lt;nazwa&gt;/</span>.'}</p>`;
 }
 
 // ---------- Nowa kopia ----------

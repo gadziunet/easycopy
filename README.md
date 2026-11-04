@@ -57,6 +57,16 @@ docker compose up -d
 Panel i archiwa działają na osobnych portach celowo: zarchiwizowane strony to cudzy kod,
 a osobny port oznacza dla przeglądarki osobne źródło – kopia nie ma dostępu do sesji panelu.
 
+### Jeden port zamiast dwóch
+
+Ustaw `ARCHIVE_PORT=0` i zostaw w `ports` tylko panel (np. `"8080:8080"`). Panel sam wyda
+wtedy archiwa pod `http://<adres-serwera>:8080/a/<nazwa>/`.
+
+Kopie nadal są odizolowane nagłówkiem `sandbox` (bez dostępu do ciasteczek panelu), ale tracisz
+dodatkową warstwę ochrony, jaką daje osobny port – złośliwa zarchiwizowana strona wyświetla się
+pod tym samym adresem co panel. Archiwa w tym trybie nie wymagają logowania do panelu;
+zabezpieczysz je zmienną `ARCHIVE_PASSWORD`.
+
 ### Zapomniane hasło
 
 ```bash
@@ -86,7 +96,7 @@ Pliki zapisują się jako użytkownik z `PUID`/`PGID`, nie jako root.
 | `ARCHIVE_PASSWORD` | brak            | hasło do archiwów (nazwa użytkownika dowolna)              |
 | `ARCHIVE_BASE_URL` | `http://<host panelu>:8081` | adres archiwów w linkach panelu (np. za reverse proxy) |
 | `PANEL_PORT`       | `8080`          | port panelu w kontenerze                                   |
-| `ARCHIVE_PORT`     | `8081`          | port serwera archiwów w kontenerze                         |
+| `ARCHIVE_PORT`     | `8081`          | port serwera archiwów w kontenerze (`0` = jeden port, archiwa w panelu) |
 | `DATA_DIR`         | `/data`         | baza panelu (SQLite)                                       |
 | `ARCHIVE_DIR`      | `/data/archiwa` | katalog archiwów                                           |
 

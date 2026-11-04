@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { listArchives, listVersions, readManifest } from '../server/archives.js';
+import { createArchiveHandler } from '../server/archive-server.js';
 import { createAuth, isSameOrigin } from './auth.js';
 import { hashPassword, validatePassword, validateUsername, verifyPassword } from './accounts.js';
 import { FORM_DEFAULTS, formFromJob, parseJobForm } from './job-form.js';
@@ -48,15 +49,21 @@ function readBody(req) {
 }
 
 /**
- * options: db, archiveRoot, archivePort (8081), archiveBaseUrl (opcjonalnie),
+ * options: db, archiveRoot, archivePort (8081; 0 = archiwa na porcie panelu pod /a/…),
+ *          archivePassword (tryb jednego portu), archiveBaseUrl (opcjonalnie),
  *          warning (np. ostrzeżenie o systemie plików), log
  */
-export function createPanelHandler({ db, archiveRoot, archivePort = 8081, archiveBaseUrl = null, warning = null, log = () => {} }) {
+export function createPanelHandler({
+  db, archiveRoot, archivePort = 8081, archivePassword = null, archiveBaseUrl = null, warning = null, log = () => {},
+}) {
+  // tryb jednego portu: panel sam wydaje archiwa (te same zabezpieczenia co osobny serwer)
+  const archiveHandler = archivePort === 0 ? createArchiveHandler({ archiveRoot, password: archivePassword }) : null;
   const auth = createAuth({ db, secret: db.sessionSecret() });
   const isSecure = (req) => req.headers['x-forwarded-proto'] === 'https';
 
   const archiveBase = (req) => {
     if (archiveBaseUrl) return archiveBaseUrl.replace(/\/+$/, '');
+    if (archiveHandler) return ''; // ten sam adres co panel: /a/<nazwa>/
     // ten sam host co panel, port serwera archiwów
     const host = (req.headers.host || 'localhost').replace(/:\d+$/, '');
     return `http://${host}:${archivePort}`;
@@ -103,6 +110,9 @@ export function createPanelHandler({ db, archiveRoot, archivePort = 8081, archiv
       const method = req.method;
 
       if (p === '/healthz') return send(res, 200, 'ok', { 'content-type': 'text/plain; charset=utf-8' });
+      // archiwa w trybie jednego portu – bez logowania do panelu: kopia w sandboxie i tak nie dostaje
+      // ciasteczek panelu, więc obrazki i CSS by się nie ładowały. Chroni je ARCHIVE_PASSWORD.
+      if (archiveHandler && (p === '/a' || p.startsWith('/a/'))) return archiveHandler(req, res);
       if (STATIC[p] && (method === 'GET' || method === 'HEAD')) {
         res.writeHead(200, { 'content-type': STATIC[p].type, 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
         return res.end(method === 'HEAD' ? undefined : STATIC[p].body);

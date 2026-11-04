@@ -124,9 +124,9 @@ function request(port, method, pathname, { headers = {}, body = null } = {}) {
 
 const cookieOf = (res) => (res.headers['set-cookie'] ?? [])[0]?.split(';')[0] ?? null;
 
-async function withPanel(fn, { dbFile = ':memory:' } = {}) {
+async function withPanel(fn, { dbFile = ':memory:', archiveRoot = path.join(tmp, 'panel-a'), ...options } = {}) {
   const db = openDatabase(dbFile);
-  const server = createPanelServer({ db, archiveRoot: path.join(tmp, 'panel-a') });
+  const server = createPanelServer({ db, archiveRoot, ...options });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const origin = `http://127.0.0.1:${port}`;
@@ -305,4 +305,39 @@ test('reset-password: nowe hasło z wiersza poleceń', async () => {
     assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'stare-haslo-1' }))).status, 401);
     assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'reczne-haslo-9' }))).status, 303);
   }, { dbFile });
+});
+
+test('jeden port: archiwa w panelu pod /a/', async () => {
+  const archiveRoot = path.join(tmp, 'jeden-port');
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const dir = path.join(archiveRoot, 'strona', '2026-11-04');
+  await mkdir(path.join(dir, 'o-nas'), { recursive: true });
+  await writeFile(path.join(dir, 'index.html'), '<title>kopia</title>');
+  await writeFile(path.join(dir, 'o-nas', 'index.html'), '<p>O nas</p>');
+  await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ startUrl: 'https://www.example.com/', createdAt: '2026-11-04T10:00:00Z', status: 'complete', stats: { pages: 2, bytes: 100 } }));
+
+  await withPanel(async ({ port, form }) => {
+    // archiwa działają bez konta w panelu i nawet przed instalacją
+    const arch = await request(port, 'GET', '/a/strona/');
+    assert.equal(arch.status, 200);
+    assert.ok(arch.body.includes('kopia'));
+    assert.match(arch.headers['content-security-policy'], /^sandbox/);
+    assert.equal((await request(port, 'GET', '/a/strona')).status, 301);
+    assert.equal((await request(port, 'GET', '/a/strona/o-nas/')).status, 200);
+    assert.equal((await request(port, 'GET', '/a/strona/%2e%2e/%2e%2e/')).status !== 200, true);
+    // panel nadal wymaga instalacji/logowania
+    assert.equal((await request(port, 'GET', '/')).headers.location, '/instalacja');
+
+    const cookie = await setup(port, form);
+    const home = await request(port, 'GET', '/', { headers: { cookie } });
+    assert.ok(home.body.includes('href="/a/strona/"'), 'linki do archiwów względne, bez drugiego portu');
+    assert.ok(home.body.includes('pod tym samym adresem co panel'));
+  }, { archiveRoot, archivePort: 0 });
+
+  // z hasłem do archiwów
+  await withPanel(async ({ port }) => {
+    assert.equal((await request(port, 'GET', '/a/strona/')).status, 401);
+    const auth = `Basic ${Buffer.from('x:haslo-archiwow').toString('base64')}`;
+    assert.equal((await request(port, 'GET', '/a/strona/', { headers: { authorization: auth } })).status, 200);
+  }, { archiveRoot, archivePort: 0, archivePassword: 'haslo-archiwow' });
 });

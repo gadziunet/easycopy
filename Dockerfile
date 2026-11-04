@@ -30,7 +30,7 @@ VOLUME ["/data"]
 EXPOSE 8080 8081
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["node", "-e", "Promise.all([process.env.PANEL_PORT, process.env.ARCHIVE_PORT].map((p) => fetch('http://127.0.0.1:' + p + '/healthz'))).then((rs) => rs.every((r) => r.ok)).then((ok) => process.exit(ok ? 0 : 1), () => process.exit(1))"]
+  CMD ["node", "-e", "Promise.all([process.env.PANEL_PORT, process.env.ARCHIVE_PORT].filter((p) => Number(p) > 0).map((p) => fetch('http://127.0.0.1:' + p + '/healthz'))).then((rs) => rs.every((r) => r.ok)).then((ok) => process.exit(ok ? 0 : 1), () => process.exit(1))"]
 
 # Proces startuje jako root tylko po to, żeby przygotować /data i przejść na PUID/PGID
 ENTRYPOINT ["node", "/app/src/cli.js"]
