@@ -46,6 +46,13 @@ nav a.active { background: var(--soft); color: var(--text); font-weight: 600; }
 .btn.primary { background: var(--btn); color: var(--btn-text); border-color: var(--btn); font-weight: 600; min-height: 44px; padding: 0 18px; }
 .btn.primary:hover { opacity: .9; }
 .link { background: none; border: 0; padding: 8px; font: inherit; color: var(--muted); cursor: pointer; text-decoration: underline; }
+.link.small { padding: 0 0 0 8px; font-size: 13px; }
+.btn.quiet { color: var(--muted); border-style: dashed; }
+.btn.quiet:hover { color: var(--text); }
+.field .label { font-weight: 600; font-size: 14px; }
+.schedule-line { margin-top: 10px; font-weight: 600; }
+.v-meta { display: inline-flex; align-items: center; gap: 4px; }
+input[type=time] { min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; font: inherit; color: var(--text); background: var(--card); width: 100%; }
 form.inline { display: inline; margin: 0; }
 :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
@@ -148,9 +155,15 @@ legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
 .versions li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .versions li:first-child { border-top: 0; }
 .log { font: 13px/1.5 var(--mono); max-height: 460px; overflow: auto; border-top: 1px solid var(--line); }
-.log-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 7px 24px; border-top: 1px solid var(--soft); }
+.log-row { display: grid; grid-template-columns: 72px 128px minmax(0, 1fr); gap: 12px; padding: 7px 24px; border-top: 1px solid var(--soft); }
 .log-row:first-child { border-top: 0; }
-.log-row.warn .log-msg { font-weight: 600; }
+.log-label { white-space: nowrap; color: var(--muted); }
+.log-row.k-ok .log-label { color: var(--text); }
+.log-row.problem .log-label, .log-row.problem .log-msg { font-weight: 600; color: var(--text); }
+.log-row.k-skip .log-msg { color: var(--muted); }
+.log.only-problems .log-row:not(.problem) { display: none; }
+.log-filter { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.log-filter select { min-height: 36px; width: auto; padding: 0 8px; }
 .log-msg { overflow-wrap: anywhere; }
 .log-empty { padding: 16px 24px; }
 
@@ -171,5 +184,7 @@ code { font: 13px var(--mono); background: var(--soft); padding: 2px 6px; border
   .wrap { padding: 0 16px; }
   .pad { padding: 16px; }
   h1 { font-size: 24px; }
-  .log-row { padding: 7px 16px; }
+  .log-row { padding: 7px 16px; grid-template-columns: 64px minmax(0, 1fr); }
+  .log-row .log-label { grid-column: 2; }
+  .log-row .log-msg { grid-column: 2; }
 }

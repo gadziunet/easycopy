@@ -4,6 +4,8 @@ import { escapeHtml as e, plural } from '../server/list-page.js';
 import { PRESETS, PROJECT_URL, VERSION, formatSize } from '../worker/settings.js';
 import { MISSING_REASONS } from '../worker/special-pages.js';
 import { DEPTH_OPTIONS, SIZE_OPTIONS } from './job-form.js';
+import { logLabel } from './log-format.js';
+import { FREQUENCIES, WEEKDAYS, describeSchedule } from './scheduler.js';
 
 export const STATUS = {
   queued: { label: 'W kolejce', dot: 'dashed' },
@@ -13,7 +15,7 @@ export const STATUS = {
   paused: { label: 'Wstrzymane', dot: 'ring' },
   error: { label: 'Błąd', dot: 'ring' },
   aborted: { label: 'Przerwane', dot: 'ring' },
-  cancelled: { label: 'Anulowane', dot: 'ring' },
+  cancelled: { label: 'Zatrzymane', dot: 'ring' },
 };
 
 const PRESET_DESC = {
@@ -120,6 +122,7 @@ export function layout({ title, active = '', body, user = null, warning = null }
   const nav = [
     ['/', 'Archiwa', 'archiwa'],
     ['/zadania', 'Zadania', 'zadania'],
+    ['/harmonogram', 'Harmonogram', 'harmonogram'],
   ]
     .map(([href, label, key]) => `<a href="${href}"${active === key ? ' class="active" aria-current="page"' : ''}>${label}</a>`)
     .join('');
@@ -169,11 +172,13 @@ function activeJobCard(job, archiveBase) {
 <progress max="1" value="${s.progress.toFixed(3)}" data-field="progress" aria-label="Postęp"></progress>
 <div class="row-meta"><span data-field="detail">${detail}</span><span>Preset: ${e(PRESETS[job.options?.preset]?.label ?? '—')}</span></div>
 </div>
-<div class="job-actions"><a class="btn" href="/zadania/${s.id}">Szczegóły</a>${csrfForm(`/zadania/${s.id}/anuluj`, 'Anuluj', { confirm: 'Anulować to zadanie?' })}</div>
+<div class="job-actions"><a class="btn" href="/zadania/${s.id}">Szczegóły</a>${job.status === 'running'
+    ? csrfForm(`/zadania/${s.id}/anuluj`, 'Zatrzymaj', { confirm: 'Zatrzymać pobieranie? To, co już pobrano, zostanie w kopii.' })
+    : csrfForm(`/zadania/${s.id}/anuluj`, 'Usuń z kolejki', { confirm: 'Usunąć to zadanie z kolejki?' })}</div>
 </div>`;
 }
 
-export function archivesPage({ archives, activeJobs, latestJobs, archiveBase }) {
+export function archivesPage({ archives, activeJobs, latestJobs, archiveBase, schedules = new Map() }) {
   const active = activeJobs.length
     ? `<section class="card pad" aria-labelledby="w-toku" data-poll="active">
 <h2 id="w-toku">W toku</h2>
@@ -193,7 +198,7 @@ ${activeJobs.map((j) => activeJobCard(j, archiveBase)).join('\n')}
       const older = a.versions.filter((v) => v.version !== a.latest);
       return `<tr>
 <td><div class="strong">${e(a.name)}</div><div class="mono">${e(hostOf(a.startUrl))}</div></td>
-<td>${e(formatDate(info.createdAt ? Date.parse(info.createdAt) : null))}<div class="sub">${e(a.latest)}</div></td>
+<td>${e(formatDate(info.createdAt ? Date.parse(info.createdAt) : null))}<div class="sub">${e(a.latest)}</div>${schedules.get(a.name) ? `<div class="sub">↻ ${e(describeSchedule(schedules.get(a.name)))}${schedules.get(a.name).enabled ? '' : ' (wstrzymany)'}</div>` : ''}</td>
 <td>${a.versions.length}${older.length ? `<details><summary>starsze</summary><ul class="plain">${older.map((v) => `<li><a href="${e(archiveBase)}/a/${e(a.name)}/${e(v.version)}/" target="_blank" rel="noopener noreferrer">${e(v.version)}</a></li>`).join('')}</ul></details>` : ''}</td>
 <td>${info.pages ?? '—'}</td>
 <td>${info.bytes != null ? e(formatSize(info.bytes)) : '—'}</td>
@@ -202,6 +207,7 @@ ${activeJobs.map((j) => activeJobCard(j, archiveBase)).join('\n')}
 <a class="btn" href="${e(archiveBase)}/a/${e(a.name)}/" target="_blank" rel="noopener noreferrer">Otwórz ${ICON_EXT}</a>
 ${jobId && !activeJob ? csrfForm(`/zadania/${jobId}/ponow`, 'Nowa wersja') : ''}
 ${jobId ? `<a class="btn" href="/zadania/${jobId}">Szczegóły</a>` : ''}
+${activeJob ? '' : csrfForm(`/archiwa/${a.name}/usun`, 'Usuń', { cls: 'btn quiet', confirm: `Usunąć archiwum „${a.name}” – wszystkie wersje (${a.versions.length}), historię zadań i harmonogram? Tego nie da się cofnąć.` })}
 </td>
 </tr>`;
     })
@@ -245,7 +251,14 @@ function checkbox(name, label, checked, hint = '') {
   return `<label class="check"><input type="checkbox" name="${e(name)}"${checked ? ' checked' : ''}><span>${label}${hint ? ` <span class="sub">${hint}</span>` : ''}</span></label>`;
 }
 
-export function newJobPage({ values, errors = {} }) {
+/**
+ * Formularz ustawień kopii. Tryby:
+ *   new       – nowa kopia (domyślnie)
+ *   retry     – popraw ustawienia i pobierz ponownie (z zakończonego zadania)
+ *   edit-job  – popraw zadanie, które czeka w kolejce
+ *   schedule  – edycja harmonogramu
+ */
+export function newJobPage({ values, errors = {}, mode = 'new', action = '/nowa', back = '/' }) {
   const presets = Object.entries(PRESETS)
     .map(
       ([id, p]) => `<label class="preset">
@@ -255,17 +268,31 @@ export function newJobPage({ values, errors = {} }) {
     )
     .join('');
   const advancedOpen = Boolean(errors.ua || errors.os || errors.customUa || values.skip || values.exclude || !values.respectRobots || values.allowJs || values.externalNewTab || values.ua !== 'easycopy');
+  const texts = {
+    new: { title: 'Nowa kopia strony', lead: 'Podaj adres i wybierz tempo. Resztę możesz zostawić domyślną.', submit: 'Rozpocznij pobieranie' },
+    retry: { title: 'Popraw ustawienia i pobierz ponownie', lead: 'Zmień, co trzeba – zapisze się nowa wersja kopii.', submit: 'Pobierz ponownie' },
+    'edit-job': { title: 'Popraw ustawienia zadania', lead: 'Zadanie jeszcze czeka w kolejce – zmiany zadziałają przy jego starcie.', submit: 'Zapisz zmiany' },
+    schedule: { title: 'Edytuj harmonogram', lead: 'Ustawienia dla kolejnych kopii z harmonogramu.', submit: 'Zapisz harmonogram' },
+  }[mode];
+  const showSchedule = mode !== 'edit-job';
+  const nameLocked = mode === 'schedule';
+  const repeatOptions = [{ value: 'none', label: 'Jednorazowo' }, ...Object.entries(FREQUENCIES).map(([value, label]) => ({ value, label }))];
+  if (mode === 'schedule') repeatOptions.shift();
+  const monthdays = Array.from({ length: 28 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}.` }));
 
   return `<div class="narrow wide">
-<a class="back" href="/">← Archiwa</a>
-<h1>Nowa kopia strony</h1>
-<p class="lead">Podaj adres i wybierz tempo. Resztę możesz zostawić domyślną.</p>
+<a class="back" href="${e(back)}">← Wróć</a>
+<h1>${e(texts.title)}</h1>
+<p class="lead">${e(texts.lead)}</p>
 ${Object.keys(errors).length ? '<p class="notice" role="alert">Popraw zaznaczone pola.</p>' : ''}
-<form method="post" action="/nowa" class="stack" novalidate>
+<form method="post" action="${e(action)}" class="stack" novalidate>
+${mode === 'retry' ? '<input type="hidden" name="_mode" value="retry">' : ''}
 
 <section class="card pad stack">
 ${field('url', 'Adres strony', `<input id="url" name="url" type="url" inputmode="url" class="mono-input" value="${e(values.url)}" placeholder="https://www.example.com/" required${errors.url ? ' aria-invalid="true" aria-describedby="url-error"' : ''}>`, { error: errors.url })}
-${field('name', 'Nazwa w panelu', `<input id="name" name="name" type="text" value="${e(values.name)}" placeholder="np. Strona firmy">`, { hint: 'Puste = nazwa z domeny. Adres archiwum: /a/&lt;nazwa&gt;/' })}
+${nameLocked
+    ? `<div class="field"><span class="label">Nazwa w panelu</span><div class="mono">${e(values.name)}</div><input type="hidden" name="name" value="${e(values.name)}"></div>`
+    : field('name', 'Nazwa w panelu', `<input id="name" name="name" type="text" value="${e(values.name)}" placeholder="np. Strona firmy">`, { hint: 'Puste = nazwa z domeny. Adres archiwum: /a/&lt;nazwa&gt;/' })}
 </section>
 
 <section class="card pad stack" aria-labelledby="tempo">
@@ -283,6 +310,16 @@ ${field('maxSize', 'Limit rozmiaru', select('maxSize', SIZE_OPTIONS, values.maxS
 </div>
 ${checkbox('sameDomain', 'Tylko ta domena', values.sameDomain, '(linki do innych stron prowadzą do oryginału)')}
 </section>
+
+${showSchedule ? `<section class="card pad stack" aria-labelledby="powtarzaj" data-schedule>
+<div><h2 id="powtarzaj">Powtarzaj</h2><p class="sub">Kolejne kopie zapisują się jako nowe wersje tego samego archiwum.</p></div>
+<div class="grid4">
+${field('repeat', 'Jak często', select('repeat', repeatOptions, values.repeat, 'data-repeat'), { error: errors.repeat })}
+<div data-repeat-show="weekly"${values.repeat === 'weekly' ? '' : ' hidden'}>${field('weekday', 'Dzień tygodnia', select('weekday', WEEKDAYS.map((w) => ({ value: String(w.value), label: w.label })), values.weekday), { error: errors.weekday })}</div>
+<div data-repeat-show="monthly"${values.repeat === 'monthly' ? '' : ' hidden'}>${field('monthday', 'Dzień miesiąca', select('monthday', monthdays, values.monthday), { error: errors.monthday })}</div>
+<div data-repeat-show="daily weekly monthly"${values.repeat === 'none' ? ' hidden' : ''}>${field('time', 'Godzina', `<input id="time" name="time" type="time" value="${e(values.time)}">`, { error: errors.time })}</div>
+</div>
+</section>` : ''}
 
 <details class="card"${advancedOpen ? ' open' : ''}>
 <summary>Ustawienia zaawansowane</summary>
@@ -307,8 +344,8 @@ ${field('exclude', 'Wyklucz adresy (wzorce)', `<input id="exclude" name="exclude
 </details>
 
 <div class="form-actions">
-<a class="btn" href="/">Anuluj</a>
-<button type="submit" class="btn primary">Rozpocznij pobieranie</button>
+<a class="btn" href="${e(back)}">Anuluj</a>
+<button type="submit" class="btn primary">${e(texts.submit)}</button>
 </div>
 </form>
 </div>`;
@@ -376,13 +413,17 @@ ${csrfForm(`/zadania/${job.id}/ponow`, 'Ponów za 10 min', { fields: { preset: '
   return '';
 }
 
-export function jobPage({ job, log, versions, archiveBase }) {
+export function jobPage({ job, log, versions, archiveBase, schedule = null }) {
   const s = jobSummary(job, archiveBase);
   const isActive = job.status === 'queued' || job.status === 'running';
   const actions = [
     s.archiveUrl ? `<a class="btn" href="${e(s.archiveUrl)}" target="_blank" rel="noopener noreferrer" data-field="archive-link">Otwórz kopię ${ICON_EXT}</a>` : '',
-    isActive ? csrfForm(`/zadania/${job.id}/anuluj`, s.cancelRequested ? 'Anulowanie…' : 'Anuluj zadanie', { confirm: 'Anulować to zadanie? To, co już pobrano, zostanie w kopii.' }) : '',
+    job.status === 'running' ? csrfForm(`/zadania/${job.id}/anuluj`, s.cancelRequested ? 'Zatrzymywanie…' : 'Zatrzymaj', { confirm: 'Zatrzymać pobieranie? To, co już pobrano, zostanie w kopii.' }) : '',
+    job.status === 'queued' ? `<a class="btn" href="/zadania/${job.id}/edytuj">Popraw ustawienia</a>` : '',
+    job.status === 'queued' ? csrfForm(`/zadania/${job.id}/anuluj`, 'Usuń z kolejki', { confirm: 'Usunąć to zadanie z kolejki?' }) : '',
+    !isActive ? `<a class="btn" href="/nowa?z=${job.id}">Popraw ustawienia</a>` : '',
     !isActive && !['paused', 'error', 'aborted'].includes(job.status) ? csrfForm(`/zadania/${job.id}/ponow`, 'Nowa wersja') : '',
+    !isActive ? csrfForm(`/zadania/${job.id}/usun`, 'Usuń z historii', { cls: 'btn quiet', confirm: 'Usunąć to zadanie z historii? Pobrane pliki kopii zostaną.' }) : '',
   ].join('');
 
   const stat = (label, key, value) => `<div><div class="sub">${label}</div><div class="num" data-field="${key}">${value}</div></div>`;
@@ -410,15 +451,24 @@ ${stat('Czas', 'duration', e(formatDuration(s.durationMs)))}
 </div>
 </section>
 <section class="card" aria-labelledby="dziennik">
-<div class="pad row-between"><h2 id="dziennik">Dziennik</h2><span class="sub">ostatnie wpisy</span></div>
+<div class="pad row-between"><h2 id="dziennik">Dziennik</h2>
+<label class="log-filter">Pokaż <select data-log-filter><option value="all">Wszystko</option><option value="problems">Tylko problemy</option></select></label></div>
 <div class="log" data-field="log">${logRows || '<div class="log-empty sub">Brak wpisów.</div>'}</div>
 </section>
 </div>
 <aside class="side-col stack">
-<section class="card pad"><h2>Ustawienia</h2>${settingsList(job)}<a class="small-link" href="/nowa?z=${job.id}">Nowa kopia z tymi ustawieniami</a></section>
+<section class="card pad"><h2>Ustawienia</h2>${settingsList(job)}<a class="small-link" href="${job.status === 'queued' ? `/zadania/${job.id}/edytuj` : `/nowa?z=${job.id}`}">Popraw ustawienia</a></section>
+<section class="card pad"><h2>Harmonogram</h2>${schedule
+    ? `<p class="schedule-line">↻ ${e(describeSchedule(schedule))}${schedule.enabled ? '' : ' <span class="sub">(wstrzymany)</span>'}</p>
+<p class="sub">${schedule.enabled ? `Następna kopia: ${e(formatDate(schedule.nextRunAt))}` : 'Kopie cykliczne są wstrzymane.'}</p>
+<a class="small-link" href="/harmonogram/${schedule.id}/edytuj">Edytuj harmonogram</a>`
+    : `<p class="sub">Jednorazowo.</p><a class="small-link" href="/nowa?z=${job.id}">Ustaw powtarzanie</a>`}</section>
 <section class="card pad"><h2>Wersje</h2>${versions.length
     ? `<ul class="versions">${versions
-        .map((v) => `<li><a href="${e(archiveBase)}/a/${e(job.name)}/${e(v.version)}/" target="_blank" rel="noopener noreferrer">${e(v.version)}</a><span class="sub">${v.bytes != null ? e(formatSize(v.bytes)) : ''}</span></li>`)
+        .map((v) => {
+          const building = isActive && job.version === v.version;
+          return `<li><a href="${e(archiveBase)}/a/${e(job.name)}/${e(v.version)}/" target="_blank" rel="noopener noreferrer">${e(v.version)}</a><span class="v-meta"><span class="sub">${v.bytes != null ? e(formatSize(v.bytes)) : ''}</span>${building ? '' : csrfForm(`/archiwa/${job.name}/${v.version}/usun`, 'Usuń', { cls: 'link small', confirm: `Usunąć wersję ${v.version}? Tego nie da się cofnąć.` })}</span></li>`;
+        })
         .join('')}</ul>`
     : '<p class="sub">Jeszcze brak.</p>'}</section>
 <section class="card pad"><h2>Informacje</h2><dl class="dl">
@@ -427,14 +477,44 @@ ${stat('Czas', 'duration', e(formatDuration(s.durationMs)))}
 <dt>Koniec</dt><dd>${e(formatDate(job.finishedAt))}</dd>
 ${job.version ? `<dt>Wersja</dt><dd>${e(job.version)}</dd>` : ''}
 ${job.retryOf ? `<dt>Ponowienie</dt><dd><a href="/zadania/${job.retryOf}">#${job.retryOf}</a></dd>` : ''}
+${job.scheduleId ? '<dt>Źródło</dt><dd>Harmonogram</dd>' : ''}
 </dl></section>
 </aside>
 </div>`;
 }
 
 export function logRow(l) {
-  const code = l.code === 'failed' || l.code === 'block' || l.code === 'paused' || l.level === 'error' ? 'warn' : '';
-  return `<div class="log-row ${code}"><span class="sub">${e(formatTime(l.at))}</span><span class="log-msg">${e(l.message)}</span></div>`;
+  const { kind, label, problem } = logLabel(l);
+  return `<div class="log-row k-${kind}${problem ? ' problem' : ''}"><span class="sub">${e(formatTime(l.at))}</span><span class="log-label">${e(label)}</span><span class="log-msg">${e(l.message)}</span></div>`;
+}
+
+// ---------- Harmonogram ----------
+
+export function schedulesPage({ schedules, saved = null }) {
+  const rows = schedules
+    .map((s) => `<tr>
+<td><div class="strong">${e(s.name)}</div><div class="mono">${e(hostOf(s.url))}</div></td>
+<td>${e(describeSchedule(s))}</td>
+<td>${s.enabled ? e(formatDate(s.nextRunAt)) : '<span class="sub">wstrzymany</span>'}</td>
+<td>${s.lastJobId ? `<a href="/zadania/${s.lastJobId}">#${s.lastJobId}</a>` : '—'}</td>
+<td>${statusBadgeSchedule(s)}</td>
+<td class="actions">
+<a class="btn" href="/harmonogram/${s.id}/edytuj">Edytuj</a>
+${csrfForm(`/harmonogram/${s.id}/${s.enabled ? 'wstrzymaj' : 'wznow'}`, s.enabled ? 'Wstrzymaj' : 'Wznów')}
+${csrfForm(`/harmonogram/${s.id}/usun`, 'Usuń', { cls: 'btn quiet', confirm: `Usunąć harmonogram „${s.name}”? Archiwum i jego wersje zostaną.` })}
+</td>
+</tr>`)
+    .join('\n');
+  return `<div class="page-head"><div><h1>Harmonogram</h1><p class="lead">Kopie robione automatycznie o ustalonej porze. Każda zapisuje się jako nowa wersja archiwum.</p></div></div>
+${saved ? `<p class="notice" role="status">${e(saved)}</p>` : ''}
+<section class="card">${schedules.length
+    ? `<div class="scroll"><table><thead><tr><th>Strona</th><th>Powtarzanie</th><th>Następna kopia</th><th>Ostatnie zadanie</th><th>Status</th><th class="actions">Akcje</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<div class="empty"><p>Nie masz jeszcze kopii cyklicznych.</p><p class="sub">Ustawisz je w formularzu nowej kopii, w sekcji „Powtarzaj”.</p><a class="btn primary" href="/nowa">${ICON_PLUS}Nowa kopia</a></div>`}
+</section>`;
+}
+
+function statusBadgeSchedule(s) {
+  return `<span class="status"><span class="dot ${s.enabled ? 'full' : 'ring'}"></span><span>${s.enabled ? 'Aktywny' : 'Wstrzymany'}</span></span>`;
 }
 
 // ---------- instalacja, logowanie, konto ----------

@@ -12,6 +12,8 @@ import { runJob } from '../src/panel/runner.js';
 import { workerLoop } from '../src/panel/worker-process.js';
 import { createPanelServer } from '../src/panel/panel-server.js';
 import { runResetPassword } from '../src/panel/reset-password.js';
+import { computeNextRun, schedulerTick } from '../src/panel/scheduler.js';
+import { logLabel, describeFailure } from '../src/panel/log-format.js';
 import { startTestSite } from './helpers/test-site.js';
 
 let tmp;
@@ -82,8 +84,8 @@ test('worker: wykonuje zadanie z kolejki i zapisuje postęp oraz dziennik', asyn
     assert.ok(job.stats.pages >= 2);
     assert.ok(existsSync(path.join(archiveRoot, 'testowa', job.version, 'index.html')));
     const log = db.getLog(id).map((l) => l.message).join('\n');
-    assert.match(log, /Start:/);
-    assert.match(log, /Koniec: complete/);
+    assert.match(log, /Start pobierania:/);
+    assert.match(log, /Gotowe: \d+ stron/);
   } finally {
     db.close();
     await site.close();
@@ -100,7 +102,7 @@ test('worker: anulowanie w trakcie pobierania', async () => {
     const status = await runJob(db, job, { archiveRoot: path.join(tmp, 'a2'), crawlerOverrides: { rps: 2, concurrency: 1 } });
     assert.equal(status, 'cancelled');
     assert.equal(db.getJob(id).status, 'cancelled');
-    assert.equal(db.getJob(id).error, 'Anulowane w panelu');
+    assert.equal(db.getJob(id).error, 'Zatrzymane w panelu');
   } finally {
     db.close();
     await site.close();
@@ -340,4 +342,127 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
     const auth = `Basic ${Buffer.from('x:haslo-archiwow').toString('base64')}`;
     assert.equal((await request(port, 'GET', '/a/strona/', { headers: { authorization: auth } })).status, 200);
   }, { archiveRoot, archivePort: 0, archivePassword: 'haslo-archiwow' });
+});
+
+test('harmonogram: następny termin i zakładanie zadań', () => {
+  const from = new Date(2026, 10, 4, 15, 0).getTime(); // środa 4.11, 15:00
+  const at = (ms) => { const d = new Date(ms); return [d.getDate(), d.getHours(), d.getMinutes()]; };
+  assert.deepEqual(at(computeNextRun({ frequency: 'daily', time: '03:00' }, from)), [5, 3, 0]);
+  assert.deepEqual(at(computeNextRun({ frequency: 'daily', time: '16:30' }, from)), [4, 16, 30]);
+  assert.deepEqual(at(computeNextRun({ frequency: 'weekly', time: '03:00', weekday: 1 }, from)), [9, 3, 0]);
+  assert.deepEqual(at(computeNextRun({ frequency: 'weekly', time: '14:00', weekday: 3 }, from)), [11, 14, 0]);
+  assert.equal(new Date(computeNextRun({ frequency: 'monthly', time: '14:00', monthday: 4 }, from)).getMonth(), 11);
+
+  const db = openDatabase(':memory:');
+  const s = db.saveSchedule({ name: 'strona', url: 'https://www.example.com/', options: { preset: 'delikatny' }, frequency: 'daily', time: '03:00', nextRunAt: from - 1000 });
+  db.saveSchedule({ name: 'pozniej', url: 'https://www.example.org/', options: {}, frequency: 'daily', time: '03:00', nextRunAt: from + 60_000 });
+  const created = schedulerTick(db, from);
+  assert.equal(created.length, 1, 'tylko harmonogram, którego termin minął');
+  const job = db.getJob(created[0]);
+  assert.equal(job.name, 'strona');
+  assert.equal(job.options.preset, 'delikatny');
+  assert.equal(job.scheduleId, s.id);
+  assert.match(db.getLog(job.id)[0].message, /harmonogramu/);
+  assert.ok(db.getSchedule(s.id).nextRunAt > from, 'następny termin przesunięty');
+  assert.equal(db.getSchedule(s.id).lastJobId, job.id);
+
+  // poprzednia kopia trwa → termin pominięty, bez dokładania zadań
+  db.markScheduleRun(s.id, { nextRunAt: from });
+  assert.deepEqual(schedulerTick(db, from + 1), []);
+  assert.equal(db.listJobs().length, 1);
+
+  // wstrzymany harmonogram nic nie robi
+  db.setScheduleEnabled(s.id, false, null);
+  db.requestCancel(job.id);
+  const later = schedulerTick(db, from + 10 * 86_400_000);
+  assert.ok(later.every((id) => db.getJob(id).name !== 'strona'), 'wstrzymany harmonogram nie zakłada zadań');
+  db.close();
+});
+
+test('czytelny dziennik: etykiety i opisy błędów', () => {
+  assert.equal(logLabel({ code: 'page' }).label, '✓ Pobrano');
+  assert.equal(logLabel({ code: 'failed' }).problem, true);
+  assert.equal(logLabel({ code: 'skipped' }).problem, false);
+  assert.equal(logLabel({ level: 'info' }).label, '· Info');
+  assert.equal(describeFailure({ httpStatus: 404 }), 'nie ma go na serwerze (404)');
+  assert.equal(describeFailure({ httpStatus: 403 }), 'serwer nie daje dostępu (403)');
+  assert.equal(describeFailure({ httpStatus: 502 }), 'błąd serwera (502)');
+  assert.match(describeFailure({ error: 'timeout' }), /brak połączenia/);
+});
+
+test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
+  const archiveRoot = path.join(tmp, 'usuwanie');
+  const { mkdir, writeFile, symlink } = await import('node:fs/promises');
+  for (const v of ['2026-11-03', '2026-11-04']) {
+    const dir = path.join(archiveRoot, 'strona', v);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'index.html'), v);
+    await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ startUrl: 'https://www.example.com/', createdAt: `${v}T10:00:00Z`, status: 'complete', stats: { pages: 1, bytes: 10 } }));
+  }
+  await symlink('2026-11-04', path.join(archiveRoot, 'strona', 'latest'));
+
+  await withPanel(async ({ port, db, form }) => {
+    const cookie = await setup(port, form);
+    const get = (p) => request(port, 'GET', p, { headers: { cookie } });
+    const post = (p, data = {}) => request(port, 'POST', p, form(data, { cookie }));
+    const base = { url: 'https://www.example.com/', name: 'strona', preset: 'normalny', depth: '1', maxPages: '10', maxSize: '0', sameDomain: 'on', respectRobots: 'on', ua: 'easycopy', os: 'win' };
+
+    // nowa kopia z harmonogramem
+    const created = await post('/nowa', { ...base, repeat: 'weekly', weekday: '1', time: '03:00' });
+    assert.equal(created.status, 303);
+    const sched = db.getScheduleByName('strona');
+    assert.equal(sched.frequency, 'weekly');
+    assert.equal(db.getJob(1).scheduleId, sched.id);
+    assert.equal(db.getScheduleByName('strona').lastJobId, 1, 'pierwsza kopia przypisana do harmonogramu');
+    assert.ok((await get('/harmonogram')).body.includes('Co tydzień, pon. 03:00'));
+    assert.ok((await get('/')).body.includes('↻ Co tydzień'));
+
+    // edycja harmonogramu – nazwy nie da się zmienić
+    const edited = await post(`/harmonogram/${sched.id}/edytuj`, { ...base, name: 'inna-nazwa', preset: 'delikatny', repeat: 'daily', time: '04:30' });
+    assert.equal(edited.status, 303);
+    assert.equal(db.getSchedule(sched.id).name, 'strona');
+    assert.equal(db.getSchedule(sched.id).time, '04:30');
+    assert.equal(db.getSchedule(sched.id).options.preset, 'delikatny');
+    await post(`/harmonogram/${sched.id}/wstrzymaj`);
+    assert.equal(db.getSchedule(sched.id).enabled, false);
+    await post(`/harmonogram/${sched.id}/wznow`);
+    assert.equal(db.getSchedule(sched.id).enabled, true);
+
+    // poprawa ustawień zadania w kolejce
+    assert.equal((await get('/zadania/1/edytuj')).status, 200);
+    const fixed = await post('/zadania/1/edytuj', { ...base, preset: 'szybki', depth: '2' });
+    assert.equal(fixed.status, 303);
+    assert.equal(db.getJob(1).options.preset, 'szybki');
+    assert.equal(db.getJob(1).options.maxDepth, 2);
+
+    // zadanie w toku blokuje usuwanie archiwum
+    const blocked = await post('/archiwa/strona/usun');
+    assert.equal(blocked.status, 409);
+    assert.ok(existsSync(path.join(archiveRoot, 'strona')));
+    assert.equal((await post('/zadania/1/usun')).status, 409, 'aktywnego zadania nie usuwamy z historii');
+
+    // zatrzymanie (z kolejki) i usunięcie z historii
+    await post('/zadania/1/anuluj');
+    assert.equal(db.getJob(1).status, 'cancelled');
+    assert.ok((await get('/zadania/1')).body.includes('Zatrzymane'));
+    const delJob = await post('/zadania/1/usun');
+    assert.equal(delJob.headers.location, '/zadania');
+    assert.equal(db.getJob(1), null);
+
+    // usunięcie wersji – latest przechodzi na poprzednią
+    await post('/archiwa/strona/2026-11-04/usun');
+    assert.ok(!existsSync(path.join(archiveRoot, 'strona', '2026-11-04')));
+    const { readlinkSync } = await import('node:fs');
+    assert.equal(readlinkSync(path.join(archiveRoot, 'strona', 'latest')), '2026-11-03');
+    assert.equal((await post('/archiwa/..%2Fx/usun')).status, 404);
+
+    // usunięcie całego archiwum razem z harmonogramem
+    const leftover = db.createJob({ url: base.url, name: 'strona' });
+    db.requestCancel(leftover);
+    const del = await post('/archiwa/strona/usun');
+    assert.equal(del.status, 303);
+    assert.ok(!existsSync(path.join(archiveRoot, 'strona')));
+    assert.equal(db.getScheduleByName('strona'), null);
+    assert.equal(db.listJobs().length, 0);
+  }, { archiveRoot });
 });

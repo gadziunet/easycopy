@@ -65,6 +65,35 @@
     update();
   }
 
+  // ---------- formularz: harmonogram ----------
+  function initRepeat() {
+    var repeat = document.querySelector('[data-repeat]');
+    if (!repeat) return;
+    var parts = document.querySelectorAll('[data-repeat-show]');
+    function update() {
+      Array.prototype.forEach.call(parts, function (el) {
+        el.hidden = el.getAttribute('data-repeat-show').split(' ').indexOf(repeat.value) === -1;
+      });
+    }
+    repeat.addEventListener('change', update);
+    update();
+  }
+
+  // ---------- dziennik: filtr ----------
+  function initLogFilter() {
+    var sel = document.querySelector('[data-log-filter]');
+    var box = document.querySelector('.log');
+    if (!sel || !box) return;
+    var key = 'easycopy-log-filter';
+    try { if (localStorage.getItem(key)) sel.value = localStorage.getItem(key); } catch (e) { /* bez pamięci */ }
+    function update() {
+      box.classList.toggle('only-problems', sel.value === 'problems');
+      try { localStorage.setItem(key, sel.value); } catch (e) { /* bez pamięci */ }
+    }
+    sel.addEventListener('change', update);
+    update();
+  }
+
   // ---------- strona główna: W toku ----------
   function initActive() {
     var section = document.querySelector('[data-poll="active"]');
@@ -107,14 +136,18 @@
       var stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 20;
       entries.forEach(function (l) {
         var row = document.createElement('div');
-        row.className = 'log-row' + (l.warn ? ' warn' : '');
+        row.className = 'log-row k-' + (l.kind || 'info') + (l.problem ? ' problem' : '');
         var t = document.createElement('span');
         t.className = 'sub';
         t.textContent = formatTime(l.at);
+        var lab = document.createElement('span');
+        lab.className = 'log-label';
+        lab.textContent = l.label || '';
         var m = document.createElement('span');
         m.className = 'log-msg';
         m.textContent = l.message;
         row.appendChild(t);
+        row.appendChild(lab);
         row.appendChild(m);
         logBox.appendChild(row);
         after = Math.max(after, l.id);
@@ -144,6 +177,8 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initUaForm();
+    initRepeat();
+    initLogFilter();
     initActive();
     initJob();
   });

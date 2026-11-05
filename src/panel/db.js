@@ -56,6 +56,24 @@ const MIGRATIONS = [
     last_login_at INTEGER
   );
   `,
+  // 3: harmonogram (kopie cykliczne)
+  `
+  CREATE TABLE schedules (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    url TEXT NOT NULL,
+    options TEXT NOT NULL DEFAULT '{}',
+    frequency TEXT NOT NULL,
+    time_hm TEXT NOT NULL,
+    weekday INTEGER,
+    monthday INTEGER,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at INTEGER,
+    last_job_id INTEGER,
+    created_at INTEGER NOT NULL
+  );
+  ALTER TABLE jobs ADD COLUMN schedule_id INTEGER;
+  `,
 ];
 
 export const ACTIVE_STATUSES = ['queued', 'running'];
@@ -88,6 +106,7 @@ function mapJob(row) {
     error: row.error,
     cancelRequested: Boolean(row.cancel_requested),
     retryOf: row.retry_of,
+    scheduleId: row.schedule_id ?? null,
   };
 }
 
@@ -124,12 +143,35 @@ export class Db {
 
   // ---------- zadania ----------
 
-  createJob({ url, name, options = {}, runAt = Date.now(), retryOf = null }) {
+  createJob({ url, name, options = {}, runAt = Date.now(), retryOf = null, scheduleId = null }) {
     const now = Date.now();
     const r = this.db
-      .prepare('INSERT INTO jobs (url, name, options, status, run_at, created_at, retry_of) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(url, name, JSON.stringify(options), 'queued', runAt, now, retryOf);
+      .prepare('INSERT INTO jobs (url, name, options, status, run_at, created_at, retry_of, schedule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(url, name, JSON.stringify(options), 'queued', runAt, now, retryOf, scheduleId);
     return Number(r.lastInsertRowid);
+  }
+
+  /** Poprawa ustawień zadania, które jeszcze czeka w kolejce. */
+  updateQueuedJob(id, { url, name, options }) {
+    const r = this.db
+      .prepare("UPDATE jobs SET url = ?, name = ?, options = ? WHERE id = ? AND status = 'queued'")
+      .run(url, name, JSON.stringify(options), id);
+    return Number(r.changes) === 1;
+  }
+
+  hasActiveJob(name) {
+    return Boolean(this.db.prepare("SELECT 1 FROM jobs WHERE name = ? AND status IN ('queued', 'running') LIMIT 1").get(name));
+  }
+
+  /** Usuwa zakończone zadanie z historii (z dziennikiem). Pliki kopii zostają. */
+  deleteJob(id) {
+    const r = this.db.prepare("DELETE FROM jobs WHERE id = ? AND status NOT IN ('queued', 'running')").run(id);
+    return Number(r.changes) === 1;
+  }
+
+  /** Usuwa historię zakończonych zadań danego archiwum. */
+  deleteJobsByName(name) {
+    return Number(this.db.prepare("DELETE FROM jobs WHERE name = ? AND status NOT IN ('queued', 'running')").run(name).changes);
   }
 
   getJob(id) {
@@ -230,6 +272,75 @@ export class Db {
          )`,
       )
       .run(perJob);
+  }
+
+  // ---------- harmonogram ----------
+
+  static mapSchedule(row) {
+    if (!row) return null;
+    return {
+      id: Number(row.id),
+      name: row.name,
+      url: row.url,
+      options: parseJson(row.options, {}),
+      frequency: row.frequency,
+      time: row.time_hm,
+      weekday: row.weekday,
+      monthday: row.monthday,
+      enabled: Boolean(row.enabled),
+      nextRunAt: row.next_run_at,
+      lastJobId: row.last_job_id,
+      createdAt: row.created_at,
+    };
+  }
+
+  /** Tworzy albo podmienia harmonogram archiwum (jeden harmonogram na nazwę). */
+  saveSchedule({ name, url, options, frequency, time, weekday = null, monthday = null, nextRunAt, enabled = true }) {
+    this.db
+      .prepare(
+        `INSERT INTO schedules (name, url, options, frequency, time_hm, weekday, monthday, enabled, next_run_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET url = excluded.url, options = excluded.options, frequency = excluded.frequency,
+           time_hm = excluded.time_hm, weekday = excluded.weekday, monthday = excluded.monthday,
+           enabled = excluded.enabled, next_run_at = excluded.next_run_at`,
+      )
+      .run(name, url, JSON.stringify(options), frequency, time, weekday, monthday, enabled ? 1 : 0, nextRunAt, Date.now());
+    return this.getScheduleByName(name);
+  }
+
+  getSchedule(id) {
+    return Db.mapSchedule(this.db.prepare('SELECT * FROM schedules WHERE id = ?').get(id));
+  }
+
+  getScheduleByName(name) {
+    return Db.mapSchedule(this.db.prepare('SELECT * FROM schedules WHERE name = ?').get(name));
+  }
+
+  listSchedules() {
+    return this.db.prepare('SELECT * FROM schedules ORDER BY name').all().map(Db.mapSchedule);
+  }
+
+  dueSchedules(now = Date.now()) {
+    return this.db
+      .prepare('SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at')
+      .all(now)
+      .map(Db.mapSchedule);
+  }
+
+  setScheduleEnabled(id, enabled, nextRunAt) {
+    this.db.prepare('UPDATE schedules SET enabled = ?, next_run_at = ? WHERE id = ?').run(enabled ? 1 : 0, nextRunAt, id);
+  }
+
+  markScheduleRun(id, { nextRunAt, jobId = null }) {
+    this.db.prepare('UPDATE schedules SET next_run_at = ?, last_job_id = COALESCE(?, last_job_id) WHERE id = ?').run(nextRunAt, jobId, id);
+  }
+
+  deleteSchedule(id) {
+    return Number(this.db.prepare('DELETE FROM schedules WHERE id = ?').run(id).changes) === 1;
+  }
+
+  deleteScheduleByName(name) {
+    return Number(this.db.prepare('DELETE FROM schedules WHERE name = ?').run(name).changes);
   }
 
   // ---------- konta ----------

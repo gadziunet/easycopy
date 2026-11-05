@@ -67,6 +67,20 @@ dodatkową warstwę ochrony, jaką daje osobny port – złośliwa zarchiwizowan
 pod tym samym adresem co panel. Archiwa w tym trybie nie wymagają logowania do panelu;
 zabezpieczysz je zmienną `ARCHIVE_PASSWORD`.
 
+### Harmonogram, poprawki i usuwanie
+
+- **Kopie cykliczne:** w formularzu nowej kopii, w sekcji „Powtarzaj”, wybierz codziennie,
+  co tydzień albo co miesiąc i godzinę. Każda kopia zapisuje się jako nowa wersja archiwum.
+  Godziny liczone są w strefie `TZ`. Harmonogramy wstrzymasz, wznowisz, zmienisz albo usuniesz
+  w zakładce **Harmonogram**. Gdy poprzednia kopia jeszcze trwa, kolejny termin jest pomijany.
+- **Zatrzymanie i poprawki:** trwające pobieranie zatrzymasz przyciskiem **Zatrzymaj** (to, co
+  pobrano, zostaje). Zadanie w kolejce poprawisz przed startem, a po zakończeniu
+  **Popraw ustawienia** otworzy formularz z dotychczasowymi ustawieniami i zrobi nową wersję.
+- **Usuwanie:** całe archiwum (wszystkie wersje, historia i harmonogram), pojedynczą wersję
+  albo wpis z historii zadań. Archiwum, które właśnie się pobiera, trzeba najpierw zatrzymać.
+- **Dziennik zadania** pokazuje etykiety („✓ Pobrano”, „✗ Błąd”, „– Pominięto”) z opisem
+  błędu słowami, np. „nie ma go na serwerze (404)”, i ma filtr **Tylko problemy**.
+
 ### Zapomniane hasło
 
 ```bash

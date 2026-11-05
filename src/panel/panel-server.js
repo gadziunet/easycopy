@@ -8,9 +8,13 @@ import { listArchives, listVersions, readManifest } from '../server/archives.js'
 import { createArchiveHandler } from '../server/archive-server.js';
 import { createAuth, isSameOrigin } from './auth.js';
 import { hashPassword, validatePassword, validateUsername, verifyPassword } from './accounts.js';
-import { FORM_DEFAULTS, formFromJob, parseJobForm } from './job-form.js';
+import { FORM_DEFAULTS, formFromJob, parseJobForm, scheduleFormValues } from './job-form.js';
+import { deleteArchive, deleteVersion } from './archive-admin.js';
+import { logLabel } from './log-format.js';
+import { computeNextRun, describeSchedule } from './scheduler.js';
+import { NAME_RE, VERSION_RE } from '../server/archives.js';
 import {
-  accountPage, archivesPage, jobPage, jobsPage, jobSummary, layout, loginPage, messagePage, newJobPage, setupPage,
+  accountPage, archivesPage, jobPage, jobsPage, jobSummary, layout, loginPage, messagePage, newJobPage, schedulesPage, setupPage,
 } from './views.js';
 
 const STATIC = {
@@ -89,6 +93,12 @@ export function createPanelHandler({
     }
     return versions;
   }
+
+  function saveSchedule(job, schedule, { enabled = true } = {}) {
+    return db.saveSchedule({ name: job.name, url: job.url, options: job.options, ...schedule, enabled, nextRunAt: enabled ? computeNextRun(schedule) : null });
+  }
+
+  const schedulesByName = () => new Map(db.listSchedules().map((s) => [s.name, s]));
 
   function retry(job, params) {
     const options = { ...job.options };
@@ -200,37 +210,135 @@ export function createPanelHandler({
         return page(req, res, 200, {
           title: 'Archiwa',
           active: 'archiwa',
-          body: archivesPage({ archives, activeJobs, latestJobs: db.latestJobByName(), archiveBase: archiveBase(req) }),
+          body: archivesPage({ archives, activeJobs, latestJobs: db.latestJobByName(), archiveBase: archiveBase(req), schedules: schedulesByName() }),
         });
       }
 
       if (p === '/nowa') {
         if (method === 'POST') {
-          const { values, errors, job } = parseJobForm(await readBody(req));
-          if (!job) return page(req, res, 422, { title: 'Nowa kopia', body: newJobPage({ values, errors }) });
-          const id = db.createJob(job);
+          const params = await readBody(req);
+          const mode = params.get('_mode') === 'retry' ? 'retry' : 'new';
+          const { values, errors, job, schedule } = parseJobForm(params);
+          if (!job) return page(req, res, 422, { title: 'Nowa kopia', body: newJobPage({ values, errors, mode }) });
+          let saved = null;
+          if (schedule) {
+            saved = saveSchedule(job, schedule);
+            log(`Harmonogram „${job.name}”: ${describeSchedule(saved)}`);
+          }
+          const id = db.createJob({ ...job, scheduleId: saved?.id ?? null });
+          if (saved) db.markScheduleRun(saved.id, { nextRunAt: saved.nextRunAt, jobId: id });
           log(`Nowe zadanie #${id}: ${job.url}`);
           return redirect(res, `/zadania/${id}`);
         }
         const from = Number(url.searchParams.get('z'));
         const source = from ? db.getJob(from) : null;
-        const values = source ? formFromJob(source) : { ...FORM_DEFAULTS, url: url.searchParams.get('url') ?? '' };
-        return page(req, res, 200, { title: 'Nowa kopia', body: newJobPage({ values }) });
+        const values = source
+          ? { ...formFromJob(source), ...scheduleFormValues(db.getScheduleByName(source.name)) }
+          : { ...FORM_DEFAULTS, url: url.searchParams.get('url') ?? '' };
+        return page(req, res, 200, {
+          title: 'Nowa kopia',
+          body: newJobPage({ values, mode: source ? 'retry' : 'new', back: source ? `/zadania/${source.id}` : '/' }),
+        });
+      }
+
+      // ---------- harmonogram ----------
+      if (p === '/harmonogram' && method === 'GET') {
+        const saved = { usuniety: 'Harmonogram usunięty.', zapisany: 'Harmonogram zapisany.' }[url.searchParams.get('ok')] ?? null;
+        return page(req, res, 200, { title: 'Harmonogram', active: 'harmonogram', body: schedulesPage({ schedules: db.listSchedules(), saved }) });
+      }
+      const sm = /^\/harmonogram\/(\d+)\/(edytuj|wstrzymaj|wznow|usun)$/.exec(p);
+      if (sm) {
+        const s = db.getSchedule(Number(sm[1]));
+        if (!s) return notFound(req, res);
+        const action = sm[2];
+        if (action === 'edytuj') {
+          const formAction = `/harmonogram/${s.id}/edytuj`;
+          if (method === 'POST') {
+            const params = await readBody(req);
+            params.set('name', s.name); // nazwa archiwum się nie zmienia
+            const { values, errors, job, schedule } = parseJobForm(params);
+            if (!schedule && !errors.repeat) errors.repeat = 'Wybierz, jak często robić kopię';
+            if (!job || Object.keys(errors).length) {
+              return page(req, res, 422, { title: 'Harmonogram', active: 'harmonogram', body: newJobPage({ values, errors, mode: 'schedule', action: formAction, back: '/harmonogram' }) });
+            }
+            saveSchedule({ ...job, name: s.name }, schedule, { enabled: s.enabled });
+            log(`Harmonogram „${s.name}” zmieniony`);
+            return redirect(res, '/harmonogram?ok=zapisany');
+          }
+          if (method === 'GET') {
+            const values = { ...formFromJob({ url: s.url, name: s.name, options: s.options }), ...scheduleFormValues(s) };
+            return page(req, res, 200, { title: 'Harmonogram', active: 'harmonogram', body: newJobPage({ values, mode: 'schedule', action: formAction, back: '/harmonogram' }) });
+          }
+        }
+        if (method === 'POST' && (action === 'wstrzymaj' || action === 'wznow')) {
+          const enable = action === 'wznow';
+          db.setScheduleEnabled(s.id, enable, enable ? computeNextRun(s) : null);
+          log(`Harmonogram „${s.name}”: ${enable ? 'wznowiony' : 'wstrzymany'}`);
+          return redirect(res, '/harmonogram');
+        }
+        if (method === 'POST' && action === 'usun') {
+          db.deleteSchedule(s.id);
+          log(`Harmonogram „${s.name}” usunięty`);
+          return redirect(res, '/harmonogram?ok=usuniety');
+        }
+      }
+
+      // ---------- usuwanie archiwów ----------
+      const am = /^\/archiwa\/([^/]+)(?:\/([^/]+))?\/usun$/.exec(p);
+      if (am && method === 'POST') {
+        const [, name, version] = am;
+        if (!NAME_RE.test(name) || (version && !VERSION_RE.test(version))) return notFound(req, res);
+        if (version) {
+          const building = db.activeJobs().some((j) => j.name === name && j.version === version);
+          if (building) return page(req, res, 409, { title: 'Nie można usunąć', body: messagePage('Ta wersja właśnie się pobiera', 'Najpierw zatrzymaj zadanie, potem usuń wersję.') });
+          const r = await deleteVersion(archiveRoot, name, version);
+          log(`Usunięto wersję ${name}/${version}`);
+          const back = db.latestJobByName().get(name);
+          return redirect(res, r.archiveGone || !back ? '/' : `/zadania/${back}`);
+        }
+        if (db.hasActiveJob(name)) {
+          return page(req, res, 409, { title: 'Nie można usunąć', body: messagePage('To archiwum właśnie się pobiera', 'Najpierw zatrzymaj zadanie (albo usuń je z kolejki), potem usuń archiwum.') });
+        }
+        await deleteArchive(archiveRoot, name);
+        db.deleteJobsByName(name);
+        db.deleteScheduleByName(name);
+        log(`Usunięto archiwum „${name}”`);
+        return redirect(res, '/');
       }
 
       if (p === '/zadania' && method === 'GET') {
         return page(req, res, 200, { title: 'Zadania', active: 'zadania', body: jobsPage({ jobs: db.listJobs({ limit: 100 }) }) });
       }
 
-      const m = /^\/zadania\/(\d+)(?:\/(anuluj|ponow))?$/.exec(p);
+      const m = /^\/zadania\/(\d+)(?:\/(anuluj|ponow|edytuj|usun))?$/.exec(p);
       if (m) {
         const job = db.getJob(Number(m[1]));
         if (!job) return notFound(req, res);
+        if (m[2] === 'edytuj') {
+          if (job.status !== 'queued') return redirect(res, `/nowa?z=${job.id}`); // już ruszyło – nowa kopia z poprawkami
+          const formAction = `/zadania/${job.id}/edytuj`;
+          if (method === 'POST') {
+            const { values, errors, job: changed } = parseJobForm(await readBody(req));
+            if (!changed) return page(req, res, 422, { title: job.name, active: 'zadania', body: newJobPage({ values, errors, mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
+            if (!db.updateQueuedJob(job.id, changed)) return redirect(res, `/nowa?z=${job.id}`); // właśnie wystartowało
+            log(`Zmienione ustawienia zadania #${job.id}`);
+            return redirect(res, `/zadania/${job.id}`);
+          }
+          if (method === 'GET') {
+            return page(req, res, 200, { title: job.name, active: 'zadania', body: newJobPage({ values: formFromJob(job), mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
+          }
+        }
+        if (m[2] === 'usun' && method === 'POST') {
+          if (!db.deleteJob(job.id)) return page(req, res, 409, { title: 'Nie można usunąć', body: messagePage('Zadanie jest w toku', 'Najpierw je zatrzymaj, potem usuń z historii.') });
+          log(`Usunięto zadanie #${job.id} z historii`);
+          return redirect(res, '/zadania');
+        }
         if (m[2] && method === 'POST') {
           const params = await readBody(req);
           if (m[2] === 'anuluj') {
             db.requestCancel(job.id);
-            log(`Anulowanie zadania #${job.id}`);
+            if (job.status === 'running') db.addLog(job.id, 'warn', 'Zatrzymywanie na prośbę z panelu…', 'stop');
+            log(`Zatrzymanie zadania #${job.id}`);
             return redirect(res, `/zadania/${job.id}`);
           }
           const id = retry(job, params);
@@ -241,7 +349,7 @@ export function createPanelHandler({
           return page(req, res, 200, {
             title: job.name,
             active: 'zadania',
-            body: jobPage({ job, log: db.getLog(job.id, { limit: 300 }), versions: await versionsOf(job.name), archiveBase: archiveBase(req) }),
+            body: jobPage({ job, log: db.getLog(job.id, { limit: 300 }), versions: await versionsOf(job.name), archiveBase: archiveBase(req), schedule: db.getScheduleByName(job.name) }),
           });
         }
       }
@@ -259,7 +367,7 @@ export function createPanelHandler({
           id: l.id,
           at: l.at,
           message: l.message,
-          warn: ['failed', 'block', 'paused'].includes(l.code) || l.level === 'error',
+          ...logLabel(l),
         }));
         return json(res, 200, { job: jobSummary(job, archiveBase(req)), log: entries });
       }

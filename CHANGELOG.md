@@ -17,6 +17,11 @@
 - Kreator pierwszego uruchomienia: konto administratora zakładane w przeglądarce, hasła
   hashowane scryptem, zmiana hasła w zakładce Konto (wylogowuje inne urządzenia),
   `easycopy reset-password` na wypadek zapomnianego hasła.
+- Harmonogram kopii (codziennie, co tydzień, co miesiąc o wybranej godzinie) ze stroną do
+  wstrzymywania, edycji i usuwania; terminy pomijane, gdy poprzednia kopia jeszcze trwa.
+- Zatrzymanie trwającego pobierania, poprawa ustawień zadania w kolejce, „Popraw ustawienia”
+  dla zakończonych zadań; usuwanie archiwum, pojedynczej wersji i wpisu z historii.
+- Czytelny dziennik zadania: etykiety, opisy błędów HTTP po polsku, filtr „Tylko problemy”.
 - Worker w osobnym procesie, kolejka w bazie SQLite (wbudowany `node:sqlite`), ostrzeżenie
   o bazie na udziale sieciowym.
 - Obraz Docker (amd64, arm64) z PUID/PGID i healthcheckiem, przykładowy `docker-compose.yml`.

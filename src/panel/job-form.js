@@ -1,6 +1,7 @@
 // Formularz „Nowa kopia”: wartości domyślne, odczyt i walidacja.
 
 import { BROWSERS, PRESETS, SYSTEMS, parseSize, slugify } from '../worker/settings.js';
+import { FREQUENCIES } from './scheduler.js';
 
 export const DEPTH_OPTIONS = [
   { value: '0', label: 'Tylko ta strona (0)' },
@@ -34,7 +35,22 @@ export const FORM_DEFAULTS = {
   ua: 'easycopy',
   os: 'win',
   customUa: '',
+  repeat: 'none',
+  time: '03:00',
+  weekday: '1',
+  monthday: '1',
 };
+
+/** Pola harmonogramu z zapisanego harmonogramu. */
+export function scheduleFormValues(schedule) {
+  if (!schedule) return {};
+  return {
+    repeat: schedule.frequency,
+    time: schedule.time,
+    weekday: String(schedule.weekday ?? 1),
+    monthday: String(schedule.monthday ?? 1),
+  };
+}
 
 const list = (text) => String(text || '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -84,6 +100,10 @@ export function parseJobForm(params) {
     ua: get('ua') || 'easycopy',
     os: get('os') || 'win',
     customUa: get('customUa'),
+    repeat: get('repeat') || 'none',
+    time: get('time') || '03:00',
+    weekday: get('weekday') || '1',
+    monthday: get('monthday') || '1',
   };
   const errors = {};
 
@@ -114,6 +134,22 @@ export function parseJobForm(params) {
   if (values.ua === 'custom' && !values.customUa) errors.customUa = 'Wpisz własny nagłówek User-Agent';
   if (values.customUa.length > 500) errors.customUa = 'Nagłówek User-Agent jest za długi';
 
+  let schedule = null;
+  if (values.repeat !== 'none') {
+    if (!FREQUENCIES[values.repeat]) errors.repeat = 'Nieznana częstotliwość';
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(values.time)) errors.time = 'Podaj godzinę w formacie GG:MM, np. 03:00';
+    const weekday = Number(values.weekday);
+    const monthday = Number(values.monthday);
+    if (values.repeat === 'weekly' && !(Number.isInteger(weekday) && weekday >= 0 && weekday <= 6)) errors.weekday = 'Wybierz dzień tygodnia';
+    if (values.repeat === 'monthly' && !(Number.isInteger(monthday) && monthday >= 1 && monthday <= 28)) errors.monthday = 'Wybierz dzień miesiąca (1–28)';
+    schedule = {
+      frequency: values.repeat,
+      time: values.time.padStart(5, '0'),
+      weekday: values.repeat === 'weekly' ? weekday : null,
+      monthday: values.repeat === 'monthly' ? monthday : null,
+    };
+  }
+
   let name = values.name ? slugify(values.name) : '';
   if (!name && !errors.url) name = slugify(new URL(url).hostname.replace(/^www\./, ''));
 
@@ -138,5 +174,5 @@ export function parseJobForm(params) {
           userAgent: values.ua === 'custom' ? values.customUa : null,
         },
       };
-  return { values, errors, job };
+  return { values, errors, job, schedule: job ? schedule : null };
 }

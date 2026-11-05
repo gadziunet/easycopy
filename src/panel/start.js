@@ -9,6 +9,7 @@ import { parseArgs } from 'node:util';
 import { createArchiveServer } from '../server/archive-server.js';
 import { VERSION } from '../worker/settings.js';
 import { openDatabase } from './db.js';
+import { schedulerTick } from './scheduler.js';
 import { fsWarning } from './fs-check.js';
 import { createPanelServer } from './panel-server.js';
 
@@ -132,6 +133,17 @@ export async function runStart(argv) {
   };
   startWorker();
 
+  // harmonogram: co 30 s sprawdzamy, czy minął termin którejś kopii cyklicznej
+  const tick = () => {
+    try {
+      schedulerTick(db, Date.now(), log);
+    } catch (err) {
+      log(`Błąd harmonogramu: ${err.message}`);
+    }
+  };
+  tick();
+  const schedulerTimer = setInterval(tick, 30_000);
+
   const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   console.log(`EasyCopy ${VERSION}`);
   console.log(`  Panel:     http://${shown}:${panelPort}/`);
@@ -144,6 +156,7 @@ export async function runStart(argv) {
   const stop = () => {
     if (stopping) return;
     stopping = true;
+    clearInterval(schedulerTimer);
     log('Zatrzymuję… (bieżące pobieranie zostanie domknięte)');
     const finish = () => {
       panelServer.close();
