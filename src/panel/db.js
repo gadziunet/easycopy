@@ -74,6 +74,10 @@ const MIGRATIONS = [
   );
   ALTER TABLE jobs ADD COLUMN schedule_id INTEGER;
   `,
+  // 4: panel language per account
+  `
+  ALTER TABLE users ADD COLUMN language TEXT;
+  `,
 ];
 
 export const ACTIVE_STATUSES = ['queued', 'running'];
@@ -241,7 +245,7 @@ export class Db {
   recoverInterrupted() {
     const r = this.db
       .prepare("UPDATE jobs SET status = 'aborted', finished_at = ?, error = ? WHERE status = 'running'")
-      .run(Date.now(), 'Przerwane przez restart aplikacji');
+      .run(Date.now(), '@jobErrors.restart');
     return Number(r.changes);
   }
 
@@ -375,6 +379,10 @@ export class Db {
   /** Nowe hasło unieważnia wszystkie dotychczasowe sesje tego konta. */
   setPassword(id, passwordHash) {
     this.db.prepare('UPDATE users SET password_hash = ?, session_key = ? WHERE id = ?').run(passwordHash, randomBytes(16).toString('hex'), id);
+  }
+
+  setLanguage(id, language) {
+    this.db.prepare('UPDATE users SET language = ? WHERE id = ?').run(language, id);
   }
 
   touchLogin(id) {

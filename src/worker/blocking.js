@@ -1,6 +1,8 @@
 // Rozpoznawanie sygnałów, że serwer nas ogranicza albo blokuje (np. Cloudflare).
 // EasyCopy nie próbuje obchodzić takich zabezpieczeń – zwalnia albo się zatrzymuje.
 
+import { msg } from '../shared/i18n.js';
+
 /** Retry-After: liczba sekund albo data HTTP → milisekundy (null, gdy brak). */
 export function parseRetryAfter(value, now = Date.now()) {
   if (!value) return null;
@@ -29,17 +31,17 @@ export function detectBlock(status, headers, bodySample = '') {
   const mitigated = (get('cf-mitigated') || '').toLowerCase();
 
   if (mitigated) {
-    return { type: 'challenge', status, retryAfterMs, message: `Cloudflare: ${mitigated} (HTTP ${status})` };
+    return { type: 'challenge', status, retryAfterMs, message: msg('block.challengeCf', { kind: mitigated, status }) };
   }
   if (status === 429) {
-    return { type: 'rate', status, retryAfterMs, message: 'Serwer ogranicza liczbę zapytań (HTTP 429)' };
+    return { type: 'rate', status, retryAfterMs, message: msg('block.rate429') };
   }
   const looksLikeChallenge = bodySample && CHALLENGE_MARKERS.some((re) => re.test(bodySample));
   if (looksLikeChallenge && (status === 403 || status === 503 || status === 200)) {
-    return { type: 'challenge', status, retryAfterMs, message: `Strona weryfikacji przeglądarki (HTTP ${status})` };
+    return { type: 'challenge', status, retryAfterMs, message: msg('block.challengePage', { status }) };
   }
   if (status === 503 && retryAfterMs != null) {
-    return { type: 'rate', status, retryAfterMs, message: 'Serwer chwilowo niedostępny (HTTP 503 z Retry-After)' };
+    return { type: 'rate', status, retryAfterMs, message: msg('block.unavailable503') };
   }
   return null;
 }

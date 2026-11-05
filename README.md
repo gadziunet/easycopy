@@ -1,47 +1,51 @@
 # EasyCopy
 
-Prosty archiwizator stron WWW do homelabu. Robi kopię witryny do przeglądania offline,
-w stylu SiteSuckera albo WebCopy, z prostymi presetami zamiast dziesiątek opcji.
-Działa w jednym kontenerze Docker.
+**English** · [Polski](README.pl.md)
 
-> **Status:** wersja rozwojowa – pierwsze wydanie (0.1.0) jeszcze nie powstało.
-> Działa panel WWW, robienie kopii i serwer archiwów. Harmonogram (kopie cykliczne)
-> i powiadomienia są w przygotowaniu. Do czasu wydania obraz ma tylko tag `edge`
-> (bieżąca gałąź `main`).
+A simple website archiver for your homelab. It makes a copy of a site for offline browsing,
+in the spirit of SiteSucker or WebCopy, with a few simple presets instead of dozens of options.
+It runs in a single Docker container.
 
-## Co potrafi
+> **Status:** development version – the first release (0.1.0) hasn’t been made yet.
+> The web panel, making copies, the archive server, the schedule and notifications work.
+> Until the release the image only has the `edge` tag (the current `main` branch).
 
-- Pobiera stronę razem z podstronami do ustawionej głębokości, z limitem stron i rozmiaru.
-- Przepisuje linki na względne już w trakcie pobierania – kopię można otworzyć prosto z dysku
-  (`index.html`), z pendrive’a albo przez wbudowany serwer, pod dowolną ścieżką.
-- Pobiera też zasoby z innych domen (CSS, czcionki, obrazki, skrypty z CDN) do `_ext/`.
-- Linki do innych stron prowadzą do oryginału. Niepobrane podstrony archiwizowanej witryny
-  prowadzą do strony `_brak.html` z powodem i przyciskiem „Otwórz oryginał”.
-- Zamienia kodowanie znaków na UTF-8 (polskie znaki ze starych stron w ISO-8859-2 / Windows-1250).
-- Jest „grzecznym crawlerem”: pilnuje tempa dla każdego hosta, respektuje `robots.txt`
-  i `Crawl-delay`, a przy sygnałach blokady (HTTP 429, 503 z `Retry-After`, strona weryfikacji
-  Cloudflare) zwalnia albo wstrzymuje pobieranie. **Nie próbuje obchodzić zabezpieczeń.**
-- Trzyma kolejne wersje kopii i serwuje je z bezpiecznymi nagłówkami (sandbox).
-- Ma prosty panel WWW: nowa kopia w kilku kliknięciach, kolejka zadań, postęp na żywo, dziennik.
-- Bez zależności z npm – wystarczy Node.js 22.13 lub nowszy albo Docker.
+## What it does
 
-## Instalacja: Docker Compose
+- Downloads a page together with its subpages up to a set depth, with page and size limits.
+- Rewrites links to relative ones while downloading – a copy opens straight from disk
+  (`index.html`), from a USB stick or through the built-in server, under any path.
+- Also downloads assets from other domains (CSS, fonts, images, scripts from CDNs) into `_ext/`.
+- Links to other sites lead to the original. Subpages of the archived site that weren’t
+  downloaded lead to a `_brak.html` page with the reason and an “Open the original” button.
+- Converts character encodings to UTF-8 (e.g. old pages in ISO-8859-2 / Windows-1250).
+- Is a “polite crawler”: keeps a request rate per host, respects `robots.txt` and `Crawl-delay`,
+  and when it sees signs of blocking (HTTP 429, 503 with `Retry-After`, a Cloudflare challenge
+  page) it slows down or pauses. **It never tries to bypass protections.**
+- Keeps successive versions of a copy and serves them with safe headers (sandbox).
+- Has a simple web panel: a new copy in a few clicks, a job queue, live progress, a log,
+  a schedule and notifications (ntfy, Gotify, Pushover, Discord, webhook).
+- Speaks English and Polish – pick the language on the sign-in page or on the Account page.
+- No npm dependencies – all you need is Node.js 22.13 or newer, or Docker.
+
+## Installation: Docker Compose
 
 ```yaml
 services:
   easycopy:
-    image: ghcr.io/gadziunet/easycopy:edge   # po wydaniu 0.1.0: :latest
+    image: ghcr.io/gadziunet/easycopy:edge   # after the 0.1.0 release: :latest
     container_name: easycopy
     restart: unless-stopped
     init: true
     ports:
       - "8080:8080"   # panel
-      - "8081:8081"   # archiwa
+      - "8081:8081"   # archives
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=Europe/Warsaw
-      # - ARCHIVE_PASSWORD=zmien-to-haslo
+      - TZ=Europe/London
+      # - EASYCOPY_LANG=en
+      # - ARCHIVE_PASSWORD=change-this-password
     volumes:
       - ./data:/data
 ```
@@ -50,150 +54,170 @@ services:
 docker compose up -d
 ```
 
-- **Panel:** `http://<adres-serwera>:8080/` – tu dodajesz kopie i śledzisz postęp.
-  Przy pierwszym otwarciu panel poprosi o utworzenie konta administratora (login i hasło).
-- **Archiwa:** `http://<adres-serwera>:8081/` – tu otwierają się gotowe kopie (panel linkuje do nich).
+- **Panel:** `http://<server-address>:8080/` – add copies and follow their progress here.
+  On the first visit the panel asks you to create the administrator account (username and password).
+- **Archives:** `http://<server-address>:8081/` – finished copies open here (the panel links to them).
 
-Panel i archiwa działają na osobnych portach celowo: zarchiwizowane strony to cudzy kod,
-a osobny port oznacza dla przeglądarki osobne źródło – kopia nie ma dostępu do sesji panelu.
+The panel and the archives use separate ports on purpose: archived pages are someone else’s code,
+and a separate port is a separate origin for the browser – a copy has no access to the panel session.
 
-### Jeden port zamiast dwóch
+### One port instead of two
 
-Ustaw `ARCHIVE_PORT=0` i zostaw w `ports` tylko panel (np. `"8080:8080"`). Panel sam wyda
-wtedy archiwa pod `http://<adres-serwera>:8080/a/<nazwa>/`.
+Set `ARCHIVE_PORT=0` and keep only the panel in `ports` (e.g. `"8080:8080"`). The panel then
+serves the archives itself at `http://<server-address>:8080/a/<name>/`.
 
-Kopie nadal są odizolowane nagłówkiem `sandbox` (bez dostępu do ciasteczek panelu), ale tracisz
-dodatkową warstwę ochrony, jaką daje osobny port – złośliwa zarchiwizowana strona wyświetla się
-pod tym samym adresem co panel. Archiwa w tym trybie nie wymagają logowania do panelu;
-zabezpieczysz je zmienną `ARCHIVE_PASSWORD`.
+Copies are still isolated with the `sandbox` header (no access to the panel cookies), but you lose
+the extra layer of protection a separate port gives – a malicious archived page is shown under the
+same address as the panel. In this mode the archives don’t require signing in to the panel;
+protect them with the `ARCHIVE_PASSWORD` variable.
 
-### Harmonogram, poprawki i usuwanie
+### Schedule, changes and deleting
 
-- **Kopie cykliczne:** w formularzu nowej kopii, w sekcji „Powtarzaj”, wybierz codziennie,
-  co tydzień albo co miesiąc i godzinę. Każda kopia zapisuje się jako nowa wersja archiwum.
-  Godziny liczone są w strefie `TZ`. Harmonogramy wstrzymasz, wznowisz, zmienisz albo usuniesz
-  w zakładce **Harmonogram**. Gdy poprzednia kopia jeszcze trwa, kolejny termin jest pomijany.
-- **Zatrzymanie i poprawki:** trwające pobieranie zatrzymasz przyciskiem **Zatrzymaj** (to, co
-  pobrano, zostaje). Zadanie w kolejce poprawisz przed startem, a po zakończeniu
-  **Popraw ustawienia** otworzy formularz z dotychczasowymi ustawieniami i zrobi nową wersję.
-- **Usuwanie:** całe archiwum (wszystkie wersje, historia i harmonogram), pojedynczą wersję
-  albo wpis z historii zadań. Archiwum, które właśnie się pobiera, trzeba najpierw zatrzymać.
-- **Dziennik zadania** pokazuje etykiety („✓ Pobrano”, „✗ Błąd”, „– Pominięto”) z opisem
-  błędu słowami, np. „nie ma go na serwerze (404)”, i ma filtr **Tylko problemy**.
+- **Recurring copies:** in the new copy form, in the “Repeat” section, choose daily, weekly or
+  monthly and a time. Every copy is saved as a new version of the archive. Times use the `TZ`
+  time zone. Pause, resume, change or delete schedules on the **Schedule** page. When the previous
+  copy is still running, the next run is skipped.
+- **Stopping and changes:** stop a running download with **Stop** (what has been downloaded stays).
+  A queued job can be changed before it starts, and for a finished one **Change settings** opens
+  the form with the previous settings and makes a new version.
+- **Deleting:** a whole archive (all versions, history and schedule), a single version or an entry
+  in the job history. An archive that is being downloaded has to be stopped first.
+- **The job log** shows labels (“✓ Downloaded”, “✗ Error”, “– Skipped”) with the error described
+  in words, e.g. “not on the server (404)”, and has a **Problems only** filter.
 
-### Zapomniane hasło
+### Notifications
+
+On the **Notifications** page you enable channels – ntfy, Gotify, Pushover, Discord or any
+webhook (JSON in a POST request) – and choose when to send a message: copy finished, limit reached,
+paused by a server block, error. Notifications can be limited to copies made by the schedule.
+**Send a test notification** checks the settings right away. The result of every send goes to the
+job log. If you enter the panel address, the message links to the job.
+
+Tokens and webhook addresses are stored in the panel database and aren’t shown in the form
+again (an empty field keeps the saved value).
+
+### Language
+
+The panel, the archive server and the command line work in English and Polish. The panel takes
+the language from the account settings, then from the browser; change it on the sign-in page or
+on the **Account** page. `EASYCOPY_LANG=pl` sets the default for everyone (including terminal
+messages). The `_brak.html` page inside a copy is shown in the visitor’s browser language.
+
+### Forgotten password
 
 ```bash
 docker compose exec easycopy easycopy reset-password
 ```
 
-Polecenie ustawia nowe, losowe hasło, wypisuje je na ekranie i wylogowuje wszystkie urządzenia.
-Własne hasło: `easycopy reset-password admin --password nowe-haslo`.
+The command sets a new random password, prints it and signs out all devices.
+Your own password: `easycopy reset-password admin --password new-password`.
 
-### Robienie kopii z wiersza poleceń
+### Making copies from the command line
 
-Zamiast panelu możesz też użyć polecenia:
+Instead of the panel you can also run:
 
 ```bash
-docker compose exec easycopy easycopy https://www.example.com/ --preset delikatny --depth 2
+docker compose exec easycopy easycopy https://www.example.com/ --preset gentle --depth 2
 ```
 
-Kopia trafia do `./data/archiwa/example-com/<data>/` i od razu jest widoczna w panelu.
-Pliki zapisują się jako użytkownik z `PUID`/`PGID`, nie jako root.
+The copy goes to `./data/archiwa/example-com/<date>/` and shows up in the panel right away.
+Files are written as the `PUID`/`PGID` user, not as root.
 
-### Zmienne środowiskowe
+### Environment variables
 
-| Zmienna            | Domyślnie       | Opis                                                       |
+| Variable           | Default         | Description                                                |
 |--------------------|-----------------|------------------------------------------------------------|
-| `PUID`, `PGID`     | `1000`          | właściciel plików (Unraid: `99` i `100`)                   |
-| `TZ`               | UTC             | strefa czasowa dat w panelu i na liście archiwów           |
-| `ARCHIVE_PASSWORD` | brak            | hasło do archiwów (nazwa użytkownika dowolna)              |
-| `ARCHIVE_BASE_URL` | `http://<host panelu>:8081` | adres archiwów w linkach panelu (np. za reverse proxy) |
-| `PANEL_PORT`       | `8080`          | port panelu w kontenerze                                   |
-| `ARCHIVE_PORT`     | `8081`          | port serwera archiwów w kontenerze (`0` = jeden port, archiwa w panelu) |
-| `DATA_DIR`         | `/data`         | baza panelu (SQLite)                                       |
-| `ARCHIVE_DIR`      | `/data/archiwa` | katalog archiwów                                           |
+| `PUID`, `PGID`     | `1000`          | owner of the files (Unraid: `99` and `100`)                |
+| `EASYCOPY_LANG`    | none            | default language: `en` or `pl` (without it – the browser language) |
+| `TZ`               | UTC             | time zone for dates in the panel and the schedule          |
+| `ARCHIVE_PASSWORD` | none            | password for the archives (any username)                   |
+| `ARCHIVE_BASE_URL` | `http://<panel host>:8081` | address of the archives in panel links (e.g. behind a reverse proxy) |
+| `PANEL_PORT`       | `8080`          | panel port inside the container                            |
+| `ARCHIVE_PORT`     | `8081`          | archive server port inside the container (`0` = one port, archives in the panel) |
+| `DATA_DIR`         | `/data`         | panel database (SQLite)                                    |
+| `ARCHIVE_DIR`      | `/data/archiwa` | archive folder                                             |
 
 ### Unraid
 
-- Ustaw `PUID=99` i `PGID=100`.
-- Katalog `/data` trzymaj na puli cache, np. `/mnt/cache/appdata/easycopy` – nie w `/mnt/user/…`.
-  Jest tam baza panelu (SQLite), a SQLite na udziałach sieciowych (NFS, SMB) i w `/mnt/user` (FUSE)
-  może się uszkodzić. Jeśli EasyCopy wykryje taki system plików, pokaże ostrzeżenie w panelu.
-- Duże archiwa możesz trzymać na macierzy, podpinając je osobno:
+- Set `PUID=99` and `PGID=100`.
+- Keep `/data` on the cache pool, e.g. `/mnt/cache/appdata/easycopy` – not in `/mnt/user/…`.
+  It holds the panel database (SQLite), and SQLite on network shares (NFS, SMB) and in `/mnt/user`
+  (FUSE) can get corrupted. If EasyCopy detects such a file system, the panel shows a warning.
+- Large archives can live on the array, mounted separately:
 
 ```yaml
     volumes:
       - /mnt/cache/appdata/easycopy:/data
-      - /mnt/user/archiwa-www:/data/archiwa
+      - /mnt/user/web-archives:/data/archiwa
 ```
 
-## Bez Dockera
+## Without Docker
 
 ```bash
 git clone https://github.com/gadziunet/easycopy.git
 cd easycopy
-node src/cli.js start                             # panel (8080), archiwa (8081) i worker, dane w ./data
-node src/cli.js https://www.example.com/          # albo sama kopia z wiersza poleceń do ./archiwa
-node src/cli.js serve                             # albo sam serwer archiwów
+node src/cli.js start                             # panel (8080), archives (8081) and worker, data in ./data
+node src/cli.js https://www.example.com/          # or just a copy from the command line into ./archiwa
+node src/cli.js serve                             # or just the archive server
 ```
 
-## Przykłady
+## Examples
 
 ```bash
-# cudza strona – wolno i ostrożnie, bez filmów i archiwów
-easycopy https://www.example.com/ --preset delikatny --depth 2 --skip mp4,zip,iso
+# someone else's site – slow and careful, without videos and archives
+easycopy https://www.example.com/ --preset gentle --depth 2 --skip mp4,zip,iso
 
-# własna strona – szybko, pełna kopia, bez robots.txt
-easycopy https://www.example.com/ --preset szybki --depth bez-limitu --max-pages 0 --no-robots
+# your own site – fast, full copy, without robots.txt
+easycopy https://www.example.com/ --preset fast --depth all --max-pages 0 --no-robots
 
-# wersja mobilna strony
+# the mobile version of a site
 easycopy https://www.example.com/ --ua safari --os ios
 ```
 
-Wszystkie opcje: `easycopy --help`, `easycopy start --help` i `easycopy serve --help`.
+All options: `easycopy --help`, `easycopy start --help` and `easycopy serve --help`.
 
-## Presety tempa
+## Speed presets
 
-| Preset    | Zapytania na sekundę (na host) | Równolegle | Do czego                    |
-|-----------|--------------------------------|------------|-----------------------------|
-| delikatny | 0,5                            | 1          | cudze strony, małe serwery  |
-| normalny  | 2                              | 2          | domyślny                    |
-| szybki    | 5                              | 4          | własne strony               |
+| Preset | Requests per second (per host) | In parallel | For                         |
+|--------|--------------------------------|-------------|-----------------------------|
+| gentle | 0.5                            | 1           | other people’s sites, small servers |
+| normal | 2                              | 2           | the default                 |
+| fast   | 5                              | 4           | your own sites              |
 
-Po pierwszej blokadzie tempo dla danego hosta spada do poziomu „delikatnego”.
-Trzy blokady z rzędu albo strona weryfikacji przeglądarki kończą pobieranie ze statusem
-„wstrzymane” – to, co już pobrano, zostaje i działa.
+The Polish names (`delikatny`, `normalny`, `szybki`) work too.
+After the first block the rate for that host drops to the “gentle” level. Three blocks in a row
+or a browser verification page end the download with the “paused” status – what has already been
+downloaded stays and works.
 
-## Głębokość
+## Depth
 
-Głębokość to liczba kliknięć od strony startowej: `0` – tylko strona startowa,
-`1` – plus strony, do których prowadzą z niej linki, i tak dalej. Pliki potrzebne do wyświetlenia
-strony (CSS, obrazki, czcionki) nie liczą się jako poziom.
+Depth is the number of clicks from the start page: `0` – only the start page,
+`1` – plus the pages it links to, and so on. Files needed to display a page
+(CSS, images, fonts) don’t count as a level.
 
-## Serwer archiwów
+## Archive server
 
-- `http://<serwer>:8081/` – lista kopii,
-- `http://<serwer>:8081/a/<nazwa>/` – najnowsza kopia,
-- `http://<serwer>:8081/a/<nazwa>/<wersja>/` – konkretna wersja, np. `/a/example-com/2026-11-04/`.
+- `http://<server>:8081/` – list of copies,
+- `http://<server>:8081/a/<name>/` – the latest copy,
+- `http://<server>:8081/a/<name>/<version>/` – a specific version, e.g. `/a/example-com/2026-11-04/`.
 
-Zarchiwizowane strony to cudzy kod, więc serwer:
+Archived pages are someone else’s code, so the server:
 
-- działa na osobnym porcie – dla przeglądarki to inne źródło niż przyszły panel,
-- wysyła każdą kopię z nagłówkiem `Content-Security-Policy: sandbox`, więc strona nie ma dostępu
-  do ciasteczek ani danych innych stron; JavaScript w kopii jest domyślnie wyłączony
-  (włącza go opcja `--allow-js` przy robieniu kopii),
-- nie pozwala wyjść poza katalog kopii i nie listuje katalogów,
-- obsługuje przewijanie wideo (Range), kompresję gzip/brotli i nagłówki cache.
+- runs on a separate port – a different origin than the panel for the browser,
+- sends every copy with a `Content-Security-Policy: sandbox` header, so a page has no access to
+  cookies or data of other sites; JavaScript in a copy is off by default
+  (the `--allow-js` option turns it on when making a copy),
+- doesn’t allow leaving the copy folder and doesn’t list directories,
+- supports video seeking (Range), gzip/brotli compression and cache headers.
 
-## Układ archiwów
+## Archive layout
 
 ```
 data/archiwa/
   example-com/
     2026-11-04/
       index.html
-      o-nas/index.html
+      about/index.html
       css/style.css
       _ext/fonts.googleapis.com/…
       _brak.html
@@ -201,18 +225,18 @@ data/archiwa/
     latest -> 2026-11-04
 ```
 
-## Rozwój
+## Development
 
 ```bash
-npm test                 # testy – używają lokalnej strony testowej, bez internetu
+npm test                 # tests – use a local test site, no internet needed
 docker build -t easycopy .
 ```
 
-Obraz w `ghcr.io` budują GitHub Actions: gałąź `main` → tag `edge`,
-tag `v1.2.3` → `1.2.3`, `1.2` i `latest` (amd64 i arm64).
+The `ghcr.io` image is built by GitHub Actions: the `main` branch → `edge` tag,
+tag `v1.2.3` → `1.2.3`, `1.2` and `latest` (amd64 and arm64).
 
-## Licencja
+## Licence
 
-[GNU AGPL-3.0](LICENSE). Możesz używać, zmieniać i rozpowszechniać EasyCopy, ale jeśli
-udostępniasz zmienioną wersję innym – także jako usługę przez sieć – musisz udostępnić
-jej kod źródłowy na tej samej licencji.
+[GNU AGPL-3.0](LICENSE). You can use, change and distribute EasyCopy, but if you make a changed
+version available to others – also as a service over a network – you have to publish its source
+code under the same licence.

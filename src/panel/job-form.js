@@ -116,32 +116,32 @@ export function parseJobForm(params) {
     if (!['http:', 'https:'].includes(u.protocol) || !u.hostname) throw new Error();
     url = u.href;
   } catch {
-    errors.url = 'Podaj pełny adres strony, np. https://www.example.com/';
+    errors.url = 'errors.url';
   }
 
-  if (!PRESETS[values.preset]) errors.preset = 'Wybierz tempo pobierania';
-  if (!DEPTH_OPTIONS.some((d) => d.value === values.depth) && !/^\d{1,2}$/.test(values.depth)) errors.depth = 'Nieprawidłowa głębokość';
+  if (!PRESETS[values.preset]) errors.preset = 'errors.preset';
+  if (!DEPTH_OPTIONS.some((d) => d.value === values.depth) && !/^\d{1,2}$/.test(values.depth)) errors.depth = 'errors.depth';
   const maxPages = Number(values.maxPages);
-  if (!Number.isInteger(maxPages) || maxPages < 0 || maxPages > 1_000_000) errors.maxPages = 'Podaj liczbę od 0 (bez limitu) do 1 000 000';
+  if (!Number.isInteger(maxPages) || maxPages < 0 || maxPages > 1_000_000) errors.maxPages = 'errors.maxPages';
   let maxBytes = 0;
   try {
     maxBytes = parseSize(values.maxSize);
   } catch {
-    errors.maxSize = 'Nieprawidłowy limit rozmiaru';
+    errors.maxSize = 'errors.maxSize';
   }
-  if (!BROWSERS.includes(values.ua) && values.ua !== 'custom') errors.ua = 'Nieznana przeglądarka';
-  if (!SYSTEMS.includes(values.os)) errors.os = 'Nieznany system';
-  if (values.ua === 'custom' && !values.customUa) errors.customUa = 'Wpisz własny nagłówek User-Agent';
-  if (values.customUa.length > 500) errors.customUa = 'Nagłówek User-Agent jest za długi';
+  if (!BROWSERS.includes(values.ua) && values.ua !== 'custom') errors.ua = 'errors.ua';
+  if (!SYSTEMS.includes(values.os)) errors.os = 'errors.os';
+  if (values.ua === 'custom' && !values.customUa) errors.customUa = 'errors.customUa';
+  if (values.customUa.length > 500) errors.customUa = 'errors.customUaLong';
 
   let schedule = null;
   if (values.repeat !== 'none') {
-    if (!FREQUENCIES[values.repeat]) errors.repeat = 'Nieznana częstotliwość';
-    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(values.time)) errors.time = 'Podaj godzinę w formacie GG:MM, np. 03:00';
+    if (!FREQUENCIES[values.repeat]) errors.repeat = 'errors.repeat';
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(values.time)) errors.time = 'errors.time';
     const weekday = Number(values.weekday);
     const monthday = Number(values.monthday);
-    if (values.repeat === 'weekly' && !(Number.isInteger(weekday) && weekday >= 0 && weekday <= 6)) errors.weekday = 'Wybierz dzień tygodnia';
-    if (values.repeat === 'monthly' && !(Number.isInteger(monthday) && monthday >= 1 && monthday <= 28)) errors.monthday = 'Wybierz dzień miesiąca (1–28)';
+    if (values.repeat === 'weekly' && !(Number.isInteger(weekday) && weekday >= 0 && weekday <= 6)) errors.weekday = 'errors.weekday';
+    if (values.repeat === 'monthly' && !(Number.isInteger(monthday) && monthday >= 1 && monthday <= 28)) errors.monthday = 'errors.monthday';
     schedule = {
       frequency: values.repeat,
       time: values.time.padStart(5, '0'),

@@ -14,6 +14,10 @@ import { createPanelServer } from '../src/panel/panel-server.js';
 import { runResetPassword } from '../src/panel/reset-password.js';
 import { computeNextRun, schedulerTick } from '../src/panel/scheduler.js';
 import { logLabel, describeFailure } from '../src/panel/log-format.js';
+import { localize, translator } from '../src/shared/i18n.js';
+
+const PL = translator('pl');
+const pl = (text) => localize(PL, text);
 import { startTestSite } from './helpers/test-site.js';
 
 let tmp;
@@ -83,7 +87,7 @@ test('worker: wykonuje zadanie z kolejki i zapisuje postęp oraz dziennik', asyn
     assert.match(job.version, /^\d{4}-\d{2}-\d{2}$/);
     assert.ok(job.stats.pages >= 2);
     assert.ok(existsSync(path.join(archiveRoot, 'testowa', job.version, 'index.html')));
-    const log = db.getLog(id).map((l) => l.message).join('\n');
+    const log = db.getLog(id).map((l) => pl(l.message)).join('\n');
     assert.match(log, /Start pobierania:/);
     assert.match(log, /Gotowe: \d+ stron/);
   } finally {
@@ -102,7 +106,7 @@ test('worker: anulowanie w trakcie pobierania', async () => {
     const status = await runJob(db, job, { archiveRoot: path.join(tmp, 'a2'), crawlerOverrides: { rps: 2, concurrency: 1 } });
     assert.equal(status, 'cancelled');
     assert.equal(db.getJob(id).status, 'cancelled');
-    assert.equal(db.getJob(id).error, 'Zatrzymane w panelu');
+    assert.equal(pl(db.getJob(id).error), 'Zatrzymane w panelu');
   } finally {
     db.close();
     await site.close();
@@ -128,7 +132,7 @@ const cookieOf = (res) => (res.headers['set-cookie'] ?? [])[0]?.split(';')[0] ??
 
 async function withPanel(fn, { dbFile = ':memory:', archiveRoot = path.join(tmp, 'panel-a'), ...options } = {}) {
   const db = openDatabase(dbFile);
-  const server = createPanelServer({ db, archiveRoot, ...options });
+  const server = createPanelServer({ db, archiveRoot, defaultLanguage: 'pl', ...options });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const origin = `http://127.0.0.1:${port}`;
@@ -291,6 +295,8 @@ test('reset-password: nowe hasło z wiersza poleceń', async () => {
 
   const lines = [];
   const orig = console.log;
+  const lang = process.env.EASYCOPY_LANG;
+  process.env.EASYCOPY_LANG = 'pl';
   console.log = (m) => lines.push(String(m));
   try {
     await runResetPassword(['--data-dir', dataDir]);
@@ -302,6 +308,10 @@ test('reset-password: nowe hasło z wiersza poleceń', async () => {
   assert.equal(generated.length, 16);
   await assert.rejects(runResetPassword(['nie-ma', '--data-dir', dataDir]), /Nie ma konta/);
   await assert.rejects(runResetPassword(['admin', '--data-dir', dataDir, '--password', 'krotkie']), /co najmniej 8/);
+  process.env.EASYCOPY_LANG = 'en';
+  await assert.rejects(runResetPassword(['admin', '--data-dir', dataDir, '--password', 'short']), /at least 8/);
+  if (lang === undefined) delete process.env.EASYCOPY_LANG;
+  else process.env.EASYCOPY_LANG = lang;
 
   await withPanel(async ({ port, form }) => {
     assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'stare-haslo-1' }))).status, 401);
@@ -362,7 +372,7 @@ test('harmonogram: następny termin i zakładanie zadań', () => {
   assert.equal(job.name, 'strona');
   assert.equal(job.options.preset, 'delikatny');
   assert.equal(job.scheduleId, s.id);
-  assert.match(db.getLog(job.id)[0].message, /harmonogramu/);
+  assert.match(pl(db.getLog(job.id)[0].message), /harmonogramu/);
   assert.ok(db.getSchedule(s.id).nextRunAt > from, 'następny termin przesunięty');
   assert.equal(db.getSchedule(s.id).lastJobId, job.id);
 
@@ -380,14 +390,14 @@ test('harmonogram: następny termin i zakładanie zadań', () => {
 });
 
 test('czytelny dziennik: etykiety i opisy błędów', () => {
-  assert.equal(logLabel({ code: 'page' }).label, '✓ Pobrano');
+  assert.equal(PL(`log.labels.${logLabel({ code: 'page' }).key}`), '✓ Pobrano');
   assert.equal(logLabel({ code: 'failed' }).problem, true);
   assert.equal(logLabel({ code: 'skipped' }).problem, false);
-  assert.equal(logLabel({ level: 'info' }).label, '· Info');
-  assert.equal(describeFailure({ httpStatus: 404 }), 'nie ma go na serwerze (404)');
-  assert.equal(describeFailure({ httpStatus: 403 }), 'serwer nie daje dostępu (403)');
-  assert.equal(describeFailure({ httpStatus: 502 }), 'błąd serwera (502)');
-  assert.match(describeFailure({ error: 'timeout' }), /brak połączenia/);
+  assert.equal(PL(`log.labels.${logLabel({ level: 'info' }).key}`), '· Info');
+  assert.equal(pl(describeFailure({ httpStatus: 404 })), 'nie ma go na serwerze (404)');
+  assert.equal(pl(describeFailure({ httpStatus: 403 })), 'serwer nie daje dostępu (403)');
+  assert.equal(pl(describeFailure({ httpStatus: 502 })), 'błąd serwera (502)');
+  assert.match(pl(describeFailure({ error: 'timeout' })), /brak połączenia/);
 });
 
 test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {

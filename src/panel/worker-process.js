@@ -50,7 +50,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   })
     .then(() => process.exit(0))
     .catch((err) => {
-      console.error(`[worker] Błąd: ${err.stack || err.message}`);
+      console.error(`[worker] Error: ${err.stack || err.message}`);
       process.exit(1);
     });
 }

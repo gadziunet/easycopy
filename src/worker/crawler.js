@@ -73,7 +73,8 @@ export const DEFAULTS = {
   browser: 'easycopy',
   os: 'win',
   userAgent: null,
-  acceptLanguage: 'pl,en;q=0.8',
+  language: 'en', // language of the helper pages (_brak.html, redirects)
+  acceptLanguage: null, // null = from `language`
   timeoutMs: 30_000,
   retries: 2,
   retryDelayMs: 2_000,
@@ -89,15 +90,15 @@ export class Crawler extends EventEmitter {
    */
   constructor(options) {
     super();
-    if (!options?.startUrl) throw new Error('Brak adresu startowego');
-    if (!options?.outDir) throw new Error('Brak katalogu docelowego');
+    if (!options?.startUrl) throw new Error('Missing start address');
+    if (!options?.outDir) throw new Error('Missing output directory');
     this.opts = { ...DEFAULTS, ...options };
     this.preset = getPreset(this.opts.preset);
     // ręczne nadpisanie presetu (ustawienia zaawansowane, testy)
     if (this.opts.rps > 0) this.preset.rps = this.opts.rps;
     if (this.opts.concurrency > 0) this.preset.concurrency = this.opts.concurrency;
     this.startUrl = normalizeUrl(this.opts.startUrl);
-    if (!this.startUrl) throw new Error(`Nieprawidłowy adres: ${this.opts.startUrl}`);
+    if (!this.startUrl) throw new Error(`Invalid address: ${this.opts.startUrl}`);
     this.outDir = path.resolve(this.opts.outDir);
     this.site = createSite(this.startUrl, { subdomains: this.opts.subdomains });
     this.userAgent = buildUserAgent({ browser: this.opts.browser, os: this.opts.os, custom: this.opts.userAgent });
@@ -224,7 +225,7 @@ export class Crawler extends EventEmitter {
       total += value.length;
       if (total > this.opts.maxFileBytes) {
         await reader.cancel().catch(() => {});
-        throw new TooLargeError(`Plik większy niż limit (${this.opts.maxFileBytes} B)`);
+        throw new TooLargeError(`File larger than the limit (${this.opts.maxFileBytes} B)`);
       }
       chunks.push(value);
     }
@@ -237,7 +238,7 @@ export class Crawler extends EventEmitter {
     const headers = {
       'user-agent': this.userAgent,
       accept: ACCEPT[entry.kind] ?? '*/*',
-      'accept-language': this.opts.acceptLanguage,
+      'accept-language': this.opts.acceptLanguage || (this.opts.language === 'pl' ? 'pl,en;q=0.8' : 'en,pl;q=0.5'),
     };
     if (entry.referrer) headers.referer = entry.referrer;
     const signal = AbortSignal.any([this.abortController.signal, AbortSignal.timeout(this.opts.timeoutMs)]);
@@ -262,12 +263,12 @@ export class Crawler extends EventEmitter {
       }
       await sleep(this.opts.retryDelayMs * 2 ** attempt, undefined, { signal: this.abortController.signal }).catch(() => {});
     }
-    throw lastError ?? new Error('Nie udało się pobrać');
+    throw lastError ?? new Error('Download failed');
   }
 
   async writeLocal(localPath, data) {
     const full = path.join(this.outDir, ...localPath.split('/'));
-    if (!full.startsWith(this.outDir + path.sep)) throw new Error(`Ścieżka poza katalogiem kopii: ${localPath}`);
+    if (!full.startsWith(this.outDir + path.sep)) throw new Error(`Path outside the copy folder: ${localPath}`);
     await mkdir(path.dirname(full), { recursive: true });
     await writeFile(full, data);
   }
@@ -352,7 +353,7 @@ export class Crawler extends EventEmitter {
     if (isPage) {
       if (!isInScope(finalUrl, this.site)) {
         // przekierowanie poza witrynę – zostawiamy stronę-przekierowanie do oryginału
-        await this.writeLocal(entry.path, redirectHtml(finalUrl, 'Ta strona przekierowuje poza archiwizowaną witrynę'));
+        await this.writeLocal(entry.path, redirectHtml(finalUrl, 'external', this.opts.language));
         entry.state = 'done';
         entry.redirect = finalUrl;
       } else if (mime === 'text/html' || mime === 'application/xhtml+xml' || mime === '') {
@@ -376,7 +377,7 @@ export class Crawler extends EventEmitter {
         if (filePath.endsWith('.bin') && ext) filePath = `${filePath.slice(0, -4)}.${ext}`;
         await this.writeLocal(filePath, body);
         if (filePath !== entry.path) {
-          await this.writeLocal(entry.path, redirectHtml(relativeLink(entry.path, filePath), 'Otwórz plik'));
+          await this.writeLocal(entry.path, redirectHtml(relativeLink(entry.path, filePath), 'openFile', this.opts.language));
         }
         entry.state = 'done';
         entry.savedAs = filePath;
@@ -500,12 +501,12 @@ export class Crawler extends EventEmitter {
       if (!isInScope(entry.url, this.site)) continue;
       if (await this.exists(entry.path)) continue;
       const href = missingHref(relativeLink(entry.path, MISSING_PAGE), entry.url, entry.reason || 'blad');
-      await this.writeLocal(entry.path, redirectHtml(href, 'Ta strona nie została zarchiwizowana'));
+      await this.writeLocal(entry.path, redirectHtml(href, 'notArchived', this.opts.language));
     }
 
-    await this.writeLocal(MISSING_PAGE, missingPageHtml({ startPagePath: relativeLink(MISSING_PAGE, this.startPath) }));
+    await this.writeLocal(MISSING_PAGE, missingPageHtml({ startPagePath: relativeLink(MISSING_PAGE, this.startPath), language: this.opts.language }));
     if (this.startPath !== 'index.html' && !(await this.exists('index.html'))) {
-      await this.writeLocal('index.html', redirectHtml(relativeLink('index.html', this.startPath), 'Przejdź do kopii strony'));
+      await this.writeLocal('index.html', redirectHtml(relativeLink('index.html', this.startPath), 'toCopy', this.opts.language));
     }
 
     const startEntry = this.entries.get(this.startPath);

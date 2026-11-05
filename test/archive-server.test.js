@@ -68,7 +68,7 @@ function request(port, pathname, headers = {}, method = 'GET') {
 }
 
 async function withServer(options, fn) {
-  const server = createArchiveServer({ archiveRoot: root, ...options });
+  const server = createArchiveServer({ archiveRoot: root, defaultLanguage: 'pl', ...options });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   try {
     await fn(server.address().port);

@@ -1,9 +1,10 @@
-// Wykonanie jednego zadania z kolejki: robi kopię i zapisuje postęp oraz dziennik w bazie.
+// Runs one job from the queue: makes the copy and stores progress and the log in the database.
+// Log messages are stored with msg() and translated when displayed.
 
+import { msg } from '../shared/i18n.js';
 import { archiveSite } from '../worker/archive.js';
-import { formatSize } from '../worker/settings.js';
-import { MISSING_REASONS } from '../worker/special-pages.js';
-import { STATUS_WORDS, describeFailure } from './log-format.js';
+import { describeFailure } from './log-format.js';
+import { notifyJob } from './notify.js';
 
 const PROGRESS_INTERVAL_MS = 1000;
 
@@ -15,16 +16,20 @@ function crawlerStats(crawler) {
   };
 }
 
+const isPage = (e) => e.kind === 'page' || e.kind === 'frame';
+
 /**
- * Wykonuje zadanie. Zwraca status końcowy.
- * shouldStop() – funkcja sprawdzana co sekundę (zamykanie aplikacji).
+ * Runs a job and returns the final status.
+ * shouldStop() is checked every second (application shutdown).
+ * notify – false turns notifications off (tests); fetchImpl – for tests.
  */
-export async function runJob(db, job, { archiveRoot, shouldStop = () => false, crawlerOverrides = {} }) {
+export async function runJob(db, job, { archiveRoot, shouldStop = () => false, crawlerOverrides = {}, notify = true, fetchImpl } = {}) {
   let crawlerRef = null;
   let timer = null;
   const log = (level, message, code = null) => db.addLog(job.id, level, message, code);
+  let status = 'error';
 
-  log('info', `Start pobierania: ${job.url}`);
+  log('info', msg('log.start', { url: job.url }));
   try {
     const { manifest } = await archiveSite({
       ...job.options,
@@ -35,24 +40,23 @@ export async function runJob(db, job, { archiveRoot, shouldStop = () => false, c
       onCrawler(crawler, { version }) {
         crawlerRef = crawler;
         db.updateProgress(job.id, { version, stats: crawlerStats(crawler) });
-        log('info', `Tempo: ${crawler.preset.label} (${crawler.preset.rps} zapytań/s, ${crawler.preset.concurrency} naraz) · wersja ${version}`);
+        log('info', msg('log.tempo', { preset: `@presets.${crawler.preset.id}.label`, rps: crawler.preset.rps, concurrency: crawler.preset.concurrency, version }));
 
         crawler.on('fetched', (e) => {
-          // do dziennika trafiają strony – pliki (obrazki, CSS) tylko w statystykach
-          if (e.kind === 'page' || e.kind === 'frame') log('info', `strona, ${formatSize(e.bytes ?? 0)} · ${e.url}`, 'page');
+          // pages go to the log – files (images, CSS) only to the statistics
+          if (isPage(e)) log('info', msg('log.page', { size: { $size: e.bytes ?? 0 }, url: e.url }), 'page');
         });
         crawler.on('failed', (e) => {
-          const what = e.kind === 'page' || e.kind === 'frame' ? 'Strona' : 'Plik';
-          log('warn', `${what} – ${describeFailure(e)} · ${e.url}`, 'failed');
+          log('warn', msg('log.failed', { what: isPage(e) ? '@log.whatPage' : '@log.whatFile', reason: describeFailure(e), url: e.url }), 'failed');
         });
         crawler.on('skipped', (e) => {
           if (e.kind === 'page' && e.reason !== 'limit' && e.reason !== 'pauza') {
-            log('info', `${MISSING_REASONS[e.reason] ?? e.reason} · ${e.url}`, 'skipped');
+            log('info', msg('log.skipped', { reason: `@missing.${e.reason}`, url: e.url }), 'skipped');
           }
         });
-        crawler.on('block', (b) => log('warn', `${b.message} (${b.host}). Czekam ${Math.round(b.waitMs / 1000)} s i zwalniam.`, 'block'));
-        crawler.on('paused', (p) => log('warn', `${p.message} (${p.host}). Pobieranie wstrzymane – EasyCopy nie obchodzi takich zabezpieczeń.`, 'paused'));
-        crawler.on('limit', () => log('info', 'Osiągnięto limit rozmiaru kopii – kończę.', 'limit'));
+        crawler.on('block', (b) => log('warn', msg('log.block', { message: b.message, host: b.host, seconds: Math.round(b.waitMs / 1000) }), 'block'));
+        crawler.on('paused', (p) => log('warn', msg('log.paused', { message: p.message, host: p.host }), 'paused'));
+        crawler.on('limit', () => log('info', msg('log.limit'), 'limit'));
 
         timer = setInterval(() => {
           db.updateProgress(job.id, { stats: crawlerStats(crawler) });
@@ -62,23 +66,38 @@ export async function runJob(db, job, { archiveRoot, shouldStop = () => false, c
     });
 
     clearInterval(timer);
-    let status = manifest.status;
+    status = manifest.status;
     let error = null;
     if (status === 'aborted') {
       status = db.isCancelRequested(job.id) ? 'cancelled' : 'aborted';
-      error = status === 'cancelled' ? 'Zatrzymane w panelu' : 'Przerwane przez zamknięcie aplikacji';
+      error = msg(status === 'cancelled' ? 'jobErrors.cancelled' : 'jobErrors.aborted');
     } else if (status === 'error') {
       const start = manifest.files.find((f) => f.path === manifest.entry);
-      error = `Nie udało się pobrać strony startowej${start?.http ? ` (HTTP ${start.http})` : start?.error ? ` (${start.error})` : ''}`;
+      error = start?.http
+        ? msg('jobErrors.startFailedHttp', { status: start.http })
+        : start?.error
+          ? msg('jobErrors.startFailedDetail', { detail: start.error })
+          : msg('jobErrors.startFailed');
     }
     db.finishJob(job.id, { status, stats: { ...manifest.stats, queuedPages: 0, queuedFiles: 0 }, pause: manifest.pause, error });
     const s = manifest.stats;
-    log(status === 'complete' || status === 'limit' ? 'info' : 'warn', `${STATUS_WORDS[status] ?? status}: ${s.pages} stron, ${s.files} plików, ${formatSize(s.bytes)}${s.failed ? `, błędy: ${s.failed}` : ''}`, 'done');
-    return status;
+    let text = msg('log.done', {
+      status: `@statusWords.${status}`,
+      pages: { $count: [s.pages, 'units.pages'] },
+      files: { $count: [s.files, 'units.files'] },
+      size: { $size: s.bytes },
+    });
+    if (s.failed) text = msg('log.doneErrors', { text, count: s.failed });
+    log(status === 'complete' || status === 'limit' ? 'info' : 'warn', text, 'done');
   } catch (err) {
     clearInterval(timer);
     db.finishJob(job.id, { status: 'error', stats: crawlerRef ? crawlerStats(crawlerRef) : null, error: err.message });
-    log('error', `Błąd: ${err.message}`, 'error');
-    return 'error';
+    log('error', msg('log.error', { message: err.message }), 'error');
+    status = 'error';
   }
+  // shutting down the app is not worth a notification – the job will just be marked as interrupted
+  if (notify && !(status === 'aborted' && shouldStop())) {
+    await notifyJob(db, db.getJob(job.id), { fetchImpl }).catch(() => {});
+  }
+  return status;
 }

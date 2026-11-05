@@ -11,6 +11,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 import { NAME_RE, VERSION_RE, latestVersion, listArchives, readManifest } from './archives.js';
 import { listPageHtml, escapeHtml } from './list-page.js';
+import { languageFromHeader, normalizeLanguage, translator } from '../shared/i18n.js';
+import { parseCookies } from '../shared/cookies.js';
 import { isCompressible, isFont, mimeType } from './mime.js';
 
 const MISSING_PAGE = '_brak.html';
@@ -36,13 +38,16 @@ function send(res, status, body, headers = {}) {
   res.end(res.req.method === 'HEAD' ? undefined : body);
 }
 
-function errorPage(res, status, title, text) {
+function errorPage(res, status, key, textKey = key) {
+  const t = res.req.t;
+  const title = t(`archiveServer.${key}Title`);
+  const text = t(`archiveServer.${textKey}Text`);
   send(
     res,
     status,
-    `<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title>
+    `<!doctype html><html lang="${t.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title>
 <style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;font:16px/1.5 system-ui,sans-serif}main{max-width:520px}h1{font-size:22px;margin:0 0 8px}a{color:inherit}</style></head>
-<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p><p><a href="/">← Lista archiwów</a></p></main></body></html>`,
+<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p><p><a href="/">${escapeHtml(t('archiveServer.backToList'))}</a></p></main></body></html>`,
   );
 }
 
@@ -91,8 +96,12 @@ function pickEncoding(acceptEncoding = '') {
  * Tworzy funkcję obsługi żądań (można ją podpiąć pod własny serwer HTTP).
  * options: archiveRoot (wymagane), password (opcjonalne, Basic Auth), log (funkcja)
  */
-export function createArchiveHandler({ archiveRoot, password = null, log = () => {} }) {
+export function createArchiveHandler({ archiveRoot, password = null, log = () => {}, defaultLanguage = null }) {
   const root = path.resolve(archiveRoot);
+  const fixedDefault = normalizeLanguage(defaultLanguage);
+  // the panel's language cookie works here too (cookies don't depend on the port)
+  const languageOf = (req) =>
+    normalizeLanguage(parseCookies(req.headers.cookie).ec_lang) ?? fixedDefault ?? languageFromHeader(req.headers['accept-language']);
   const passwordHash = password ? sha256(password) : null;
 
   const authorized = (req) => {
@@ -156,9 +165,9 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
   async function serveArchive(req, res, url) {
     // /a/<nazwa>[/<wersja>]/<ścieżka>
     const segments = safeSegments(url.pathname.slice('/a/'.length));
-    if (!segments) return errorPage(res, 400, 'Nieprawidłowy adres', 'Ten adres zawiera niedozwolone znaki.');
+    if (!segments) return errorPage(res, 400, 'invalid');
     const [name, maybeVersion, ...restAfterVersion] = segments;
-    if (!name || !NAME_RE.test(name)) return errorPage(res, 404, 'Nie ma takiego archiwum', 'Sprawdź adres albo wróć do listy archiwów.');
+    if (!name || !NAME_RE.test(name)) return errorPage(res, 404, 'noArchive');
 
     let version;
     let rest;
@@ -169,13 +178,13 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
       version = await latestVersion(root, name);
       rest = segments.slice(1);
     }
-    if (!version) return errorPage(res, 404, 'Nie ma takiego archiwum', 'Sprawdź adres albo wróć do listy archiwów.');
+    if (!version) return errorPage(res, 404, 'noArchive');
 
     let versionDir;
     try {
       versionDir = await realpath(path.join(root, name, version));
     } catch {
-      return errorPage(res, 404, 'Nie ma takiej wersji', 'Ta wersja kopii nie istnieje.');
+      return errorPage(res, 404, 'noVersion');
     }
 
     let filePath = path.join(versionDir, ...rest);
@@ -183,7 +192,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
     try {
       st = await stat(filePath);
     } catch {
-      return errorPage(res, 404, 'Nie ma takiego pliku', 'Tego pliku nie ma w kopii.');
+      return errorPage(res, 404, 'noFile');
     }
     if (st.isDirectory()) {
       if (!url.pathname.endsWith('/')) {
@@ -195,15 +204,15 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
       try {
         st = await stat(filePath);
       } catch {
-        return errorPage(res, 404, 'Nie ma takiej strony', 'Ten katalog kopii nie ma strony index.html.');
+        return errorPage(res, 404, 'noPage');
       }
     }
-    if (!st.isFile()) return errorPage(res, 404, 'Nie ma takiego pliku', 'Tego pliku nie ma w kopii.');
+    if (!st.isFile()) return errorPage(res, 404, 'noFile');
 
     // ostatnia linia obrony: po rozwinięciu dowiązań plik musi leżeć w katalogu wersji
     const real = await realpath(filePath).catch(() => null);
     if (!real || !real.startsWith(versionDir + path.sep)) {
-      return errorPage(res, 404, 'Nie ma takiego pliku', 'Tego pliku nie ma w kopii.');
+      return errorPage(res, 404, 'noFile');
     }
 
     const manifest = await readManifest(root, name, version);
@@ -220,6 +229,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
   }
 
   return async function handler(req, res) {
+    req.t = translator(languageOf(req));
     const started = Date.now();
     res.on('finish', () => log(`${req.method} ${req.url} ${res.statusCode} ${Date.now() - started} ms`));
     try {
@@ -237,22 +247,22 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
       // czcionki pobierane z kopii w sandboxie idą bez danych logowania – przepuszczamy je bez hasła
       const fontFromSandbox = req.headers.origin === 'null' && isFont(url.pathname);
       if (!fontFromSandbox && !authorized(req)) {
-        return send(res, 401, 'Wymagane logowanie', {
+        return send(res, 401, req.t('archiveServer.loginRequired'), {
           'www-authenticate': 'Basic realm="EasyCopy", charset="UTF-8"',
           'content-type': 'text/plain; charset=utf-8',
         });
       }
 
-      if (url.pathname === '/') return send(res, 200, listPageHtml(await listArchives(root)));
+      if (url.pathname === '/') return send(res, 200, listPageHtml(req.t, await listArchives(root)));
       if (url.pathname === '/a' || url.pathname === '/a/') {
         res.writeHead(302, { location: '/' });
         return res.end();
       }
       if (url.pathname.startsWith('/a/')) return await serveArchive(req, res, url);
-      return errorPage(res, 404, 'Nie ma takiej strony', 'Sprawdź adres albo wróć do listy archiwów.');
+      return errorPage(res, 404, 'noPage', 'noArchive');
     } catch (err) {
-      log(`Błąd: ${err.stack || err.message}`);
-      if (!res.headersSent) return errorPage(res, 500, 'Błąd serwera', 'Coś poszło nie tak. Szczegóły są w logu.');
+      log(`Error: ${err.stack || err.message}`);
+      if (!res.headersSent) return errorPage(res, 500, 'serverError');
       res.destroy();
     }
   };

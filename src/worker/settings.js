@@ -21,7 +21,7 @@ const PRESET_ALIASES = { gentle: 'delikatny', normal: 'normalny', fast: 'szybki'
 export function getPreset(name = 'normalny') {
   const key = PRESET_ALIASES[name] ?? name;
   const preset = PRESETS[key];
-  if (!preset) throw new Error(`Nieznany preset „${name}”. Dostępne: ${Object.keys(PRESETS).join(', ')}`);
+  if (!preset) throw new Error(`Unknown preset "${name}". Available: gentle, normal, fast (or ${Object.keys(PRESETS).join(', ')})`);
   return { id: key, ...preset };
 }
 
@@ -40,7 +40,7 @@ export const SYSTEMS = Object.keys(OS_TOKENS);
 export function buildUserAgent({ browser = 'easycopy', os = 'win', custom } = {}) {
   if (custom) return custom;
   const osToken = OS_TOKENS[os];
-  if (!osToken) throw new Error(`Nieznany system „${os}”. Dostępne: ${SYSTEMS.join(', ')}`);
+  if (!osToken) throw new Error(`Unknown system "${os}". Available: ${SYSTEMS.join(', ')}`);
   const mobile = os === 'android' || os === 'ios';
   const chrome = `Mozilla/5.0 (${osToken}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0${mobile ? ' Mobile' : ''} Safari/537.36`;
   switch (browser) {
@@ -55,7 +55,7 @@ export function buildUserAgent({ browser = 'easycopy', os = 'win', custom } = {}
     case 'safari':
       return `Mozilla/5.0 (${osToken}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6${mobile ? ' Mobile/15E148' : ''} Safari/605.1.15`;
     default:
-      throw new Error(`Nieznana przeglądarka „${browser}”. Dostępne: ${BROWSERS.join(', ')}`);
+      throw new Error(`Unknown browser "${browser}". Available: ${BROWSERS.join(', ')}`);
   }
 }
 
@@ -64,7 +64,7 @@ export function parseSize(text) {
   if (text == null || text === '') return 0;
   if (typeof text === 'number') return text;
   const m = /^\s*([\d.,]+)\s*([kmgt]?)i?b?\s*$/i.exec(String(text));
-  if (!m) throw new Error(`Nie rozumiem rozmiaru „${text}” (przykład: 500MB, 2GB)`);
+  if (!m) throw new Error(`Can't understand the size "${text}" (example: 500MB, 2GB)`);
   const n = Number(m[1].replace(',', '.'));
   const mult = { '': 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3, t: 1024 ** 4 }[m[2].toLowerCase()];
   return Math.round(n * mult);

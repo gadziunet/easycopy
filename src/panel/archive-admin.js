@@ -15,9 +15,9 @@ async function isRealDir(p) {
 }
 
 function siteDir(root, name) {
-  if (!NAME_RE.test(name)) throw new Error('Nieprawidłowa nazwa archiwum');
+  if (!NAME_RE.test(name)) throw new Error('Invalid archive name');
   const dir = path.join(path.resolve(root), name);
-  if (path.dirname(dir) !== path.resolve(root)) throw new Error('Nieprawidłowa ścieżka archiwum');
+  if (path.dirname(dir) !== path.resolve(root)) throw new Error('Invalid archive path');
   return dir;
 }
 
@@ -49,7 +49,7 @@ async function fixLatest(dir, versions) {
  * Gdy była jedyna – znika całe archiwum. Zwraca { deleted, archiveGone }.
  */
 export async function deleteVersion(root, name, version) {
-  if (!VERSION_RE.test(version)) throw new Error('Nieprawidłowa wersja');
+  if (!VERSION_RE.test(version)) throw new Error('Invalid version');
   const dir = siteDir(root, name);
   const vdir = path.join(dir, version);
   if (!(await isRealDir(vdir))) return { deleted: false, archiveGone: false };

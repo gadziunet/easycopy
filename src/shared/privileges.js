@@ -8,7 +8,7 @@ import path from 'node:path';
 
 function parseId(value, name) {
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} musi być liczbą całkowitą ≥ 0 (podano „${value}”)`);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a whole number ≥ 0 (got "${value}")`);
   return n;
 }
 

@@ -1,22 +1,12 @@
-// Harmonogram: kopie cykliczne (codziennie, co tydzień, co miesiąc) o wybranej godzinie.
-// Czas liczony w strefie z TZ (w Dockerze np. TZ=Europe/Warsaw).
+// Schedule: recurring copies (daily, weekly, monthly) at a chosen time.
+// Times are in the TZ time zone (in Docker e.g. TZ=Europe/Warsaw).
 
-export const FREQUENCIES = {
-  daily: 'Codziennie',
-  weekly: 'Co tydzień',
-  monthly: 'Co miesiąc',
-};
+import { msg } from '../shared/i18n.js';
 
-// 1 = poniedziałek … 0 = niedziela (jak w Date.getDay)
-export const WEEKDAYS = [
-  { value: 1, label: 'poniedziałek', short: 'pon.' },
-  { value: 2, label: 'wtorek', short: 'wt.' },
-  { value: 3, label: 'środa', short: 'śr.' },
-  { value: 4, label: 'czwartek', short: 'czw.' },
-  { value: 5, label: 'piątek', short: 'pt.' },
-  { value: 6, label: 'sobota', short: 'sob.' },
-  { value: 0, label: 'niedziela', short: 'niedz.' },
-];
+export const FREQUENCIES = { daily: true, weekly: true, monthly: true };
+
+// 1 = Monday … 0 = Sunday (as in Date.getDay)
+export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0];
 
 function parseTime(hm) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hm || '');
@@ -29,7 +19,7 @@ function parseTime(hm) {
 /** Następny termin (ms) ściśle po `from`. */
 export function computeNextRun({ frequency, time, weekday, monthday }, from = Date.now()) {
   const t = parseTime(time);
-  if (!t) throw new Error(`Nieprawidłowa godzina „${time}”`);
+  if (!t) throw new Error(`Invalid time "${time}"`);
   const base = new Date(from);
   const at = (y, mo, d) => new Date(y, mo, d, t.h, t.min, 0, 0).getTime();
 
@@ -54,16 +44,23 @@ export function computeNextRun({ frequency, time, weekday, monthday }, from = Da
     if (next <= from) next = at(base.getFullYear(), base.getMonth() + 1, day);
     return next;
   }
-  throw new Error(`Nieznana częstotliwość „${frequency}”`);
+  throw new Error(`Unknown frequency "${frequency}"`);
 }
 
-/** „Co tydzień, pon. 03:00” */
-export function describeSchedule(s) {
-  if (!s) return 'Jednorazowo';
-  if (s.frequency === 'daily') return `Codziennie, ${s.time}`;
-  if (s.frequency === 'weekly') return `Co tydzień, ${WEEKDAYS.find((w) => w.value === Number(s.weekday))?.short ?? '?'} ${s.time}`;
-  if (s.frequency === 'monthly') return `Co miesiąc, ${s.monthday}. dnia, ${s.time}`;
+/** "Weekly, Mon 03:00" */
+export function describeSchedule(t, s) {
+  if (!s) return t('scheduleText.once');
+  if (s.frequency === 'daily') return t('scheduleText.daily', { time: s.time });
+  if (s.frequency === 'weekly') return t('scheduleText.weekly', { day: t(`weekdays.${Number(s.weekday)}.short`), time: s.time });
+  if (s.frequency === 'monthly') return t('scheduleText.monthly', { day: s.monthday, time: s.time });
   return s.frequency;
+}
+
+/** Schedule description stored for later translation. */
+export function scheduleMsg(s) {
+  if (s.frequency === 'weekly') return msg('scheduleText.weekly', { day: `@weekdays.${Number(s.weekday)}.short`, time: s.time });
+  if (s.frequency === 'monthly') return msg('scheduleText.monthly', { day: s.monthday, time: s.time });
+  return msg('scheduleText.daily', { time: s.time });
 }
 
 /**
@@ -75,14 +72,14 @@ export function schedulerTick(db, now = Date.now(), log = () => {}) {
   for (const s of db.dueSchedules(now)) {
     const nextRunAt = computeNextRun(s, now);
     if (db.hasActiveJob(s.name)) {
-      log(`Harmonogram „${s.name}”: poprzednia kopia jeszcze trwa – pomijam ten termin`);
+      log(`Schedule "${s.name}": the previous copy is still running – skipping this run`);
       db.markScheduleRun(s.id, { nextRunAt });
       continue;
     }
     const jobId = db.createJob({ url: s.url, name: s.name, options: s.options, scheduleId: s.id });
-    db.addLog(jobId, 'info', `Uruchomione z harmonogramu (${describeSchedule(s)})`, 'schedule');
+    db.addLog(jobId, 'info', msg('log.fromSchedule', { schedule: scheduleMsg(s) }), 'schedule');
     db.markScheduleRun(s.id, { nextRunAt, jobId });
-    log(`Harmonogram „${s.name}”: zadanie #${jobId}`);
+    log(`Schedule "${s.name}": job #${jobId}`);
     created.push(jobId);
   }
   return created;

@@ -32,15 +32,16 @@ export async function verifyPassword(password, stored) {
 /** Skrót „na pusto” – logowanie na nieistniejący login trwa tyle samo co na istniejący. */
 export const DUMMY_HASH = await hashPassword(randomBytes(16).toString('hex'));
 
+/** Returns null or an error key (errors.*), possibly { key, params }. */
 export function validatePassword(password, repeat) {
-  if (!password || password.length < MIN_PASSWORD) return `Hasło musi mieć co najmniej ${MIN_PASSWORD} znaków.`;
-  if (password.length > MAX_PASSWORD) return 'Hasło jest za długie.';
-  if (repeat !== undefined && password !== repeat) return 'Hasła nie są takie same.';
+  if (!password || password.length < MIN_PASSWORD) return { key: 'errors.passwordShort', params: { min: MIN_PASSWORD } };
+  if (password.length > MAX_PASSWORD) return 'errors.passwordLong';
+  if (repeat !== undefined && password !== repeat) return 'errors.passwordMismatch';
   return null;
 }
 
 export function validateUsername(username) {
-  if (!USERNAME_RE.test(username ?? '')) return 'Login: 3–32 znaki, litery bez polskich znaków, cyfry, kropka, myślnik lub podkreślenie.';
+  if (!USERNAME_RE.test(username ?? '')) return 'errors.username';
   return null;
 }
 

@@ -1,30 +1,32 @@
-# EasyCopy – przykładowa konfiguracja Docker Compose.
+# EasyCopy – example Docker Compose configuration.
 #
-# Start:        docker compose up -d
-# Panel:        http://<adres-serwera>:8080/
-# Archiwa:      http://<adres-serwera>:8081/
-# Kopia z CLI:  docker compose exec easycopy easycopy https://www.example.com/
+# Start:          docker compose up -d
+# Panel:          http://<server-address>:8080/
+# Archives:       http://<server-address>:8081/
+# Copy from CLI:  docker compose exec easycopy easycopy https://www.example.com/
 
 services:
   easycopy:
-    # do czasu wydania 0.1.0 dostępny jest tylko tag „edge” (bieżąca gałąź main);
-    # po wydaniu zmień na :latest albo konkretną wersję, np. :0.1.0
+    # until 0.1.0 is released only the "edge" tag exists (current main branch);
+    # after the release switch to :latest or a specific version, e.g. :0.1.0
     image: ghcr.io/gadziunet/easycopy:edge
-    # albo zbuduj obraz lokalnie z tego repozytorium:
+    # or build the image locally from this repository:
     # build: .
     container_name: easycopy
     restart: unless-stopped
     init: true
     ports:
       - "8080:8080"   # panel
-      - "8081:8081"   # archiwa (osobny port = osobne źródło, bezpieczniej)
+      - "8081:8081"   # archives (separate port = separate origin, safer)
     environment:
-      # użytkownik, jako który zapisywane są pliki (Unraid: PUID=99, PGID=100)
+      # user that owns the saved files (Unraid: PUID=99, PGID=100)
       - PUID=1000
       - PGID=1000
-      - TZ=Europe/Warsaw
+      - TZ=Europe/London
+      # default language of the panel: en or pl (otherwise the browser language)
+      # - EASYCOPY_LANG=en
     volumes:
       - ./data:/data
-      # Unraid: dane aplikacji na cache, a duże archiwa na macierzy, np.:
+      # Unraid: app data on the cache pool, large archives on the array, e.g.:
       # - /mnt/cache/appdata/easycopy:/data
-      # - /mnt/user/archiwa-www:/data/archiwa
+      # - /mnt/user/web-archives:/data/archiwa

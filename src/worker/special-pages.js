@@ -1,21 +1,14 @@
-// Strony pomocnicze zapisywane w kopii: _brak.html i krótkie strony-przekierowania.
+// Helper pages saved in the copy: _brak.html and short redirect pages.
 
+import { DICTS, translator } from '../shared/i18n.js';
 import { escapeAttr } from './html-tokenizer.js';
 
 export const MISSING_PAGE = '_brak.html';
 
-/** Powody, dla których strona z archiwizowanej witryny nie trafiła do kopii. */
-export const MISSING_REASONS = {
-  glebokosc: 'Strona leży głębiej, niż pozwalało ustawienie głębokości.',
-  limit: 'Osiągnięto limit stron lub rozmiaru kopii.',
-  typ: 'Ten typ pliku był pominięty w ustawieniach.',
-  wykluczone: 'Adres pasował do wzorca wykluczeń.',
-  robots: 'Plik robots.txt witryny nie pozwala pobierać tej strony.',
-  blad: 'Nie udało się pobrać strony (błąd serwera lub brak strony).',
-  pauza: 'Pobieranie zostało wstrzymane, zanim doszło do tej strony.',
-};
+/** Reasons why a page of the archived site is not in the copy (ids stored in links). */
+export const MISSING_REASON_IDS = ['glebokosc', 'limit', 'typ', 'wykluczone', 'robots', 'blad', 'pauza'];
 
-/** Link do _brak.html z adresem i powodem w części #, np. _brak.html#u=…&r=glebokosc */
+/** Link to _brak.html with the address and the reason after #, e.g. _brak.html#u=…&r=glebokosc */
 export function missingHref(relToMissingPage, url, reason) {
   return `${relToMissingPage}#u=${encodeURIComponent(url)}&r=${encodeURIComponent(reason)}`;
 }
@@ -38,40 +31,61 @@ const STYLE = `
   .note { margin-top: 20px; font-size: 13px; }
 `;
 
-/** Treść _brak.html – jedna strona dla wszystkich niepobranych podstron. */
-export function missingPageHtml({ startPagePath = 'index.html' } = {}) {
-  const reasons = JSON.stringify(MISSING_REASONS);
+const escapeText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Content of _brak.html – one page for all subpages that were not downloaded.
+ * Written in `language`; the script switches to the visitor's browser language (en/pl).
+ */
+export function missingPageHtml({ startPagePath = 'index.html', language = 'en' } = {}) {
+  const t = translator(language);
+  const texts = Object.fromEntries(
+    Object.entries(DICTS).map(([lang, d]) => [lang, { ...d.missingPage, reasons: d.missing }]),
+  );
+  const json = JSON.stringify(texts).replace(/</g, '\\u003c');
   return `<!doctype html>
-<html lang="pl">
+<html lang="${t.lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Strona nie została zarchiwizowana</title>
+<title>${escapeText(t('missingPage.title'))}</title>
 <style>${STYLE}</style>
 </head>
 <body>
 <main>
-  <h1>Ta strona nie została zarchiwizowana</h1>
-  <p id="reason">Ta podstrona nie jest częścią kopii.</p>
+  <h1 id="heading">${escapeText(t('missingPage.heading'))}</h1>
+  <p id="reason">${escapeText(t('missingPage.reasonDefault'))}</p>
   <code id="url" hidden></code>
   <div class="actions">
-    <a class="btn primary" id="original" href="#" hidden target="_blank" rel="noopener noreferrer">Otwórz oryginał</a>
-    <a class="btn secondary" href="${escapeAttr(startPagePath)}">Strona główna kopii</a>
+    <a class="btn primary" id="original" href="#" hidden target="_blank" rel="noopener noreferrer">${escapeText(t('missingPage.open'))}</a>
+    <a class="btn secondary" id="home" href="${escapeAttr(startPagePath)}">${escapeText(t('missingPage.home'))}</a>
   </div>
-  <noscript><p class="note">Włącz JavaScript, żeby zobaczyć adres oryginalnej strony.</p></noscript>
+  <noscript><p class="note">${escapeText(t('missingPage.noscript'))}</p></noscript>
 </main>
 <script>
 (function () {
-  var reasons = ${reasons};
+  var texts = ${json};
+  var langs = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || '']);
+  var lang = document.documentElement.lang;
+  for (var i = 0; i < langs.length; i++) {
+    var code = String(langs[i]).slice(0, 2).toLowerCase();
+    if (texts[code]) { lang = code; break; }
+  }
+  var tx = texts[lang] || texts.en;
+  document.documentElement.lang = lang;
+  document.title = tx.title;
+  document.getElementById('heading').textContent = tx.heading;
+  document.getElementById('original').textContent = tx.open;
+  document.getElementById('home').textContent = tx.home;
   var params = new URLSearchParams(location.hash.slice(1));
   var url = params.get('u') || '';
   var reason = params.get('r') || '';
-  if (reasons[reason]) document.getElementById('reason').textContent = reasons[reason];
+  document.getElementById('reason').textContent = tx.reasons[reason] || tx.reasonDefault;
   if (/^https?:\\/\\//i.test(url)) {
-    var code = document.getElementById('url');
-    code.textContent = url;
-    code.hidden = false;
+    var box = document.getElementById('url');
+    box.textContent = url;
+    box.hidden = false;
     var link = document.getElementById('original');
     link.href = url;
     link.hidden = false;
@@ -83,19 +97,20 @@ export function missingPageHtml({ startPagePath = 'index.html' } = {}) {
 `;
 }
 
-/** Krótka strona przekierowująca (np. do _brak.html albo do pliku PDF pod innym adresem). */
-export function redirectHtml(href, label = 'Przejdź dalej') {
+/** Short redirect page (e.g. to _brak.html or to a PDF under another address). labelKey: redirect.* */
+export function redirectHtml(href, labelKey = 'toCopy', language = 'en') {
+  const t = translator(language);
   const h = escapeAttr(href);
   return `<!doctype html>
-<html lang="pl">
+<html lang="${t.lang}">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="0; url=${h}">
 <meta name="robots" content="noindex">
-<title>Przekierowanie</title>
+<title>${escapeText(t('redirect.title'))}</title>
 </head>
 <body>
-<p><a href="${h}">${label}</a></p>
+<p><a href="${h}">${escapeText(t(`redirect.${labelKey}`))}</a></p>
 </body>
 </html>
 `;

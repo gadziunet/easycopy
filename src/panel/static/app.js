@@ -1,30 +1,8 @@
-// EasyCopy – panel: odświeżanie postępu i drobne zachowania formularzy.
+// EasyCopy – panel: live progress and small form behaviours. Texts come translated from the API.
 (function () {
   'use strict';
 
   var POLL_MS = 2000;
-
-  function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    var units = ['KB', 'MB', 'GB', 'TB'];
-    var v = bytes / 1024;
-    var i = 0;
-    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-    return v.toFixed(v >= 10 ? 0 : 1).replace(/\.0$/, '').replace('.', ',') + ' ' + units[i];
-  }
-
-  function formatDuration(ms) {
-    if (ms == null || ms < 0) return '—';
-    var s = Math.round(ms / 1000);
-    if (s < 60) return s + ' s';
-    var m = Math.floor(s / 60);
-    if (m < 60) return m + ' min ' + (s % 60) + ' s';
-    return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
-  }
-
-  function formatTime(ms) {
-    return new Date(ms).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
 
   function setText(root, field, text) {
     var el = root.querySelector('[data-field="' + field + '"]');
@@ -110,7 +88,7 @@
           if (!row) return;
           setProgress(row, j.progress);
           if (j.status === 'running') {
-            setText(row, 'detail', j.pages + ' stron · ' + j.files + ' plików · ' + formatSize(j.bytes) + (j.queuedPages ? ' · w kolejce ' + j.queuedPages : ''));
+            setText(row, 'detail', j.detailText);
           }
         });
         setTimeout(tick, POLL_MS);
@@ -139,7 +117,7 @@
         row.className = 'log-row k-' + (l.kind || 'info') + (l.problem ? ' problem' : '');
         var t = document.createElement('span');
         t.className = 'sub';
-        t.textContent = formatTime(l.at);
+        t.textContent = l.timeText;
         var lab = document.createElement('span');
         lab.className = 'log-label';
         lab.textContent = l.label || '';
@@ -163,10 +141,10 @@
         setProgress(root, j.progress);
         setText(root, 'pages', j.pages);
         setText(root, 'files', j.files);
-        setText(root, 'bytes', formatSize(j.bytes));
+        setText(root, 'bytes', j.bytesText);
         setText(root, 'failed', j.failed);
         setText(root, 'queued', j.queuedPages + j.queuedFiles);
-        setText(root, 'duration', formatDuration(j.durationMs));
+        setText(root, 'duration', j.durationText);
         appendLog(data.log);
         setTimeout(tick, POLL_MS);
       }).catch(function () { setTimeout(tick, POLL_MS * 3); });

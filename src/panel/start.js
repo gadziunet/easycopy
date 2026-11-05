@@ -1,4 +1,4 @@
-// Komenda „easycopy start”: panel (8080) + serwer archiwów (8081) + worker w osobnym procesie.
+// The "easycopy start" command: panel (8080) + archive server (8081) + worker in a separate process.
 
 import { fork } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -12,36 +12,14 @@ import { openDatabase } from './db.js';
 import { schedulerTick } from './scheduler.js';
 import { fsWarning } from './fs-check.js';
 import { createPanelServer } from './panel-server.js';
-
-export const START_HELP = `EasyCopy ${VERSION} – panel, serwer archiwów i worker
-
-Użycie:
-  easycopy start [opcje]
-
-Opcje (w nawiasie zmienna środowiskowa):
-      --data-dir <katalog>      baza i ustawienia (DATA_DIR, domyślnie ./data)
-      --archive-dir <katalog>   archiwa (ARCHIVE_DIR, domyślnie <data-dir>/archiwa)
-      --panel-port <port>       port panelu (PANEL_PORT, domyślnie 8080)
-      --archive-port <port>     port serwera archiwów (ARCHIVE_PORT, domyślnie 8081;
-                                0 = jeden port: archiwa w panelu pod /a/…)
-      --host <adres>            adres nasłuchu (HOST, domyślnie 0.0.0.0)
-  -h, --help                    ta pomoc
-
-Przy pierwszym uruchomieniu panel poprosi o utworzenie konta administratora.
-Zapomniane hasło: easycopy reset-password
-
-Inne zmienne środowiskowe:
-  ARCHIVE_PASSWORD   hasło do archiwów (domyślnie brak)
-  ARCHIVE_BASE_URL   adres archiwów w linkach panelu, np. za reverse proxy
-                     (domyślnie http://<host panelu>:<port archiwów>)
-`;
+import { cliLanguage, localize, normalizeLanguage, translator } from '../shared/i18n.js';
 
 const WORKER_PATH = fileURLToPath(new URL('./worker-process.js', import.meta.url));
 
-function port(value, name, { allowOff = false } = {}) {
+function port(t, value, name, { allowOff = false } = {}) {
   if (allowOff && /^(0|off|nie|none)$/i.test(String(value))) return 0;
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`${name}: nieprawidłowy port „${value}”`);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(t('cli.badPort', { name, value }));
   return n;
 }
 
@@ -56,6 +34,7 @@ function listen(server, p, host) {
 }
 
 export async function runStart(argv) {
+  const t = translator(cliLanguage());
   const { values: o } = parseArgs({
     args: argv,
     options: {
@@ -68,15 +47,15 @@ export async function runStart(argv) {
     },
   });
   if (o.help) {
-    console.log(START_HELP);
+    console.log(t('cli.startHelp', { version: VERSION }));
     return;
   }
 
   const env = process.env;
   const dataDir = path.resolve(o['data-dir'] ?? env.DATA_DIR ?? 'data');
   const archiveRoot = path.resolve(o['archive-dir'] ?? env.ARCHIVE_DIR ?? path.join(dataDir, 'archiwa'));
-  const panelPort = port(o['panel-port'] ?? env.PANEL_PORT ?? 8080, 'PANEL_PORT');
-  const archivePort = port(o['archive-port'] ?? env.ARCHIVE_PORT ?? 8081, 'ARCHIVE_PORT', { allowOff: true });
+  const panelPort = port(t, o['panel-port'] ?? env.PANEL_PORT ?? 8080, 'PANEL_PORT');
+  const archivePort = port(t, o['archive-port'] ?? env.ARCHIVE_PORT ?? 8081, 'ARCHIVE_PORT', { allowOff: true });
   const host = o.host ?? env.HOST ?? '0.0.0.0';
   const log = (m) => console.log(`${new Date().toISOString()} ${m}`);
 
@@ -84,15 +63,15 @@ export async function runStart(argv) {
   await mkdir(archiveRoot, { recursive: true });
 
   const warning = fsWarning(dataDir);
-  if (warning) log(`UWAGA: ${warning}`);
+  if (warning) log(`WARNING: ${localize(translator('en'), warning)}`);
 
   const dbFile = path.join(dataDir, 'easycopy.db');
   const db = openDatabase(dbFile);
   const recovered = db.recoverInterrupted();
-  if (recovered) log(`Oznaczono ${recovered} przerwane zadanie(a) po restarcie`);
+  if (recovered) log(`Marked ${recovered} interrupted job(s) after a restart`);
   db.pruneLogs();
 
-  const archiveServer = archivePort ? createArchiveServer({ archiveRoot, password: env.ARCHIVE_PASSWORD || null, log: () => {} }) : null;
+  const archiveServer = archivePort ? createArchiveServer({ archiveRoot, password: env.ARCHIVE_PASSWORD || null, log: () => {}, defaultLanguage: normalizeLanguage(env.EASYCOPY_LANG) }) : null;
   const panelServer = createPanelServer({
     db,
     archiveRoot,
@@ -101,13 +80,14 @@ export async function runStart(argv) {
     archiveBaseUrl: env.ARCHIVE_BASE_URL || null,
     warning,
     log,
+    defaultLanguage: normalizeLanguage(env.EASYCOPY_LANG),
   });
 
   try {
     if (archiveServer) await listen(archiveServer, archivePort, host);
     await listen(panelServer, panelPort, host);
   } catch (err) {
-    console.error(err.code === 'EADDRINUSE' ? `Błąd: port ${err.port} jest zajęty.` : `Błąd: ${err.message}`);
+    console.error(err.code === 'EADDRINUSE' ? t('cli.portBusy', { port: err.port }) : t('cli.error', { message: err.message }));
     process.exit(1);
   }
 
@@ -122,7 +102,7 @@ export async function runStart(argv) {
     worker.on('exit', (code, signal) => {
       worker = null;
       if (stopping) return;
-      log(`Worker zakończył się (${signal ?? code}) – uruchamiam ponownie za 2 s`);
+      log(`Worker exited (${signal ?? code}) – restarting in 2 s`);
       setTimeout(() => {
         if (!stopping) {
           db.recoverInterrupted();
@@ -138,7 +118,7 @@ export async function runStart(argv) {
     try {
       schedulerTick(db, Date.now(), log);
     } catch (err) {
-      log(`Błąd harmonogramu: ${err.message}`);
+      log(`Schedule error: ${err.message}`);
     }
   };
   tick();
@@ -146,18 +126,18 @@ export async function runStart(argv) {
 
   const shown = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   console.log(`EasyCopy ${VERSION}`);
-  console.log(`  Panel:     http://${shown}:${panelPort}/`);
-  const archivesAt = archivePort ? `http://${shown}:${archivePort}/` : `http://${shown}:${panelPort}/a/… (jeden port)`;
-  console.log(`  Archiwa:   ${archivesAt}${env.ARCHIVE_PASSWORD ? ' (z hasłem)' : ''}`);
-  console.log(`  Dane:      ${dataDir}`);
-  console.log(`  Kopie:     ${archiveRoot}`);
-  if (db.countUsers() === 0) console.log('  Pierwsze uruchomienie: otwórz panel i utwórz konto administratora.');
+  console.log(t('cli.panel', { url: `http://${shown}:${panelPort}/` }));
+  const archivesAt = archivePort ? `http://${shown}:${archivePort}/` : `http://${shown}:${panelPort}/a/… ${t('cli.onePort')}`;
+  console.log(t('cli.archivesAt', { url: `${archivesAt}${env.ARCHIVE_PASSWORD ? t('cli.withPassword') : ''}` }));
+  console.log(t('cli.data', { dir: dataDir }));
+  console.log(t('cli.copies', { dir: archiveRoot }));
+  if (db.countUsers() === 0) console.log(t('cli.firstRun'));
 
   const stop = () => {
     if (stopping) return;
     stopping = true;
     clearInterval(schedulerTimer);
-    log('Zatrzymuję… (bieżące pobieranie zostanie domknięte)');
+    log('Stopping… (the current download will be finished)');
     const finish = () => {
       panelServer.close();
       archiveServer?.close();

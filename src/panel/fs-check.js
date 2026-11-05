@@ -3,6 +3,8 @@
 
 import { statfsSync } from 'node:fs';
 
+import { msg } from '../shared/i18n.js';
+
 const RISKY = {
   0x6969: 'NFS',
   0x517b: 'SMB',
@@ -21,9 +23,8 @@ export function riskyFilesystem(dir) {
   }
 }
 
+/** Warning (translatable text) or null. */
 export function fsWarning(dir) {
   const fs = riskyFilesystem(dir);
-  if (!fs) return null;
-  return `Katalog z bazą (${dir}) leży na systemie plików ${fs}. SQLite może tam uszkodzić bazę – `
-    + 'przenieś DATA_DIR na dysk lokalny (w Unraid: /mnt/cache/appdata/…, nie /mnt/user/…).';
+  return fs ? msg('messages.fsWarning', { dir, fs }) : null;
 }

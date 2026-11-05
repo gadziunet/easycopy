@@ -1,4 +1,4 @@
-// Serwer panelu WWW (domyślnie port 8080).
+// Web panel server (port 8080 by default).
 
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -6,15 +6,17 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 import { listArchives, listVersions, readManifest } from '../server/archives.js';
 import { createArchiveHandler } from '../server/archive-server.js';
-import { createAuth, isSameOrigin } from './auth.js';
+import { languageFromHeader, msg, normalizeLanguage, translator } from '../shared/i18n.js';
+import { createAuth, isSameOrigin, parseCookies } from './auth.js';
 import { hashPassword, validatePassword, validateUsername, verifyPassword } from './accounts.js';
 import { FORM_DEFAULTS, formFromJob, parseJobForm, scheduleFormValues } from './job-form.js';
 import { deleteArchive, deleteVersion } from './archive-admin.js';
-import { logLabel } from './log-format.js';
+import { loadNotifySettings, parseNotifyForm, saveNotifySettings, sendToChannels, enabledChannels, testMessage } from './notify.js';
 import { computeNextRun, describeSchedule } from './scheduler.js';
 import { NAME_RE, VERSION_RE } from '../server/archives.js';
 import {
-  accountPage, archivesPage, jobPage, jobsPage, jobSummary, layout, loginPage, messagePage, newJobPage, schedulesPage, setupPage,
+  accountPage, archivesPage, jobPage, jobsPage, jobSummary, layout, logEntry, loginPage, messagePage, newJobPage, notificationsPage,
+  schedulesPage, setupPage,
 } from './views.js';
 
 const STATIC = {
@@ -33,6 +35,9 @@ const BASE_HEADERS = {
 };
 
 const MAX_BODY = 64 * 1024;
+const LANG_COOKIE = 'ec_lang';
+const YEAR_S = 365 * 24 * 3600;
+const langCookie = (lang) => `${LANG_COOKIE}=${lang}; Path=/; SameSite=Lax; Max-Age=${YEAR_S}`;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -41,7 +46,7 @@ function readBody(req) {
     req.on('data', (c) => {
       size += c.length;
       if (size > MAX_BODY) {
-        reject(Object.assign(new Error('Za duże żądanie'), { status: 413 }));
+        reject(Object.assign(new Error('Request too large'), { status: 413 }));
         req.destroy();
         return;
       }
@@ -55,13 +60,24 @@ function readBody(req) {
 /**
  * options: db, archiveRoot, archivePort (8081; 0 = archiwa na porcie panelu pod /a/…),
  *          archivePassword (tryb jednego portu), archiveBaseUrl (opcjonalnie),
- *          warning (np. ostrzeżenie o systemie plików), log
+ *          warning (np. ostrzeżenie o systemie plików), log,
+ *          defaultLanguage (EASYCOPY_LANG; otherwise the browser language, then English),
+ *          fetchImpl (notification tests)
  */
 export function createPanelHandler({
   db, archiveRoot, archivePort = 8081, archivePassword = null, archiveBaseUrl = null, warning = null, log = () => {},
+  defaultLanguage = null, fetchImpl = fetch,
 }) {
   // tryb jednego portu: panel sam wydaje archiwa (te same zabezpieczenia co osobny serwer)
-  const archiveHandler = archivePort === 0 ? createArchiveHandler({ archiveRoot, password: archivePassword }) : null;
+  const archiveHandler = archivePort === 0 ? createArchiveHandler({ archiveRoot, password: archivePassword, defaultLanguage }) : null;
+  const fixedDefault = normalizeLanguage(defaultLanguage);
+
+  /** Language: account setting > cookie > EASYCOPY_LANG > browser (Accept-Language) > English. */
+  const languageOf = (req) =>
+    normalizeLanguage(req.user?.language)
+    ?? normalizeLanguage(parseCookies(req.headers.cookie)[LANG_COOKIE])
+    ?? fixedDefault
+    ?? languageFromHeader(req.headers['accept-language']);
   const auth = createAuth({ db, secret: db.sessionSecret() });
   const isSecure = (req) => req.headers['x-forwarded-proto'] === 'https';
 
@@ -77,13 +93,15 @@ export function createPanelHandler({
     res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', ...BASE_HEADERS, ...headers });
     res.end(res.req.method === 'HEAD' ? undefined : body);
   };
-  const page = (req, res, status, opts) => send(res, status, layout({ user: req.user ?? null, warning, ...opts }));
+  const page = (req, res, status, opts) => send(res, status, layout(req.t, { user: req.user ?? null, warning, ...opts }));
   const json = (res, status, data) => send(res, status, JSON.stringify(data), { 'content-type': 'application/json; charset=utf-8' });
   const redirect = (res, location, extra = {}) => {
     res.writeHead(303, { location, ...BASE_HEADERS, ...extra });
     res.end();
   };
-  const notFound = (req, res) => page(req, res, 404, { title: 'Nie znaleziono', body: messagePage('Nie ma takiej strony', 'Sprawdź adres albo wróć do listy archiwów.') });
+  const message = (req, res, status, key) =>
+    page(req, res, status, { title: req.t(`messages.${key}Title`), body: messagePage(req.t, `messages.${key}Title`, `messages.${key}Text`) });
+  const notFound = (req, res) => message(req, res, 404, 'notFound');
 
   async function versionsOf(name) {
     const versions = [];
@@ -114,10 +132,18 @@ export function createPanelHandler({
       if (!/^\/(api\/|static\/|healthz)/.test(req.url)) log(`${req.method} ${req.url} ${res.statusCode} ${Date.now() - started} ms`);
     });
 
+    req.t = translator(languageOf(req));
     try {
       const url = new URL(req.url, 'http://localhost');
       const p = url.pathname;
       const method = req.method;
+
+      // ?lang=pl – language choice from the sign-in page (remembered in a cookie)
+      const chosen = normalizeLanguage(url.searchParams.get('lang'));
+      if (chosen && method === 'GET' && !p.startsWith('/a/') && !p.startsWith('/api/')) {
+        url.searchParams.delete('lang');
+        return redirect(res, `${p}${url.search}`, { 'set-cookie': langCookie(chosen) });
+      }
 
       if (p === '/healthz') return send(res, 200, 'ok', { 'content-type': 'text/plain; charset=utf-8' });
       // archiwa w trybie jednego portu – bez logowania do panelu: kopia w sandboxie i tak nie dostaje
@@ -133,7 +159,7 @@ export function createPanelHandler({
       }
 
       if (method === 'POST' && !isSameOrigin(req)) {
-        return page(req, res, 403, { title: 'Odrzucone', body: messagePage('Odrzucone żądanie', 'Formularz nie pochodzi z tego panelu.') });
+        return message(req, res, 403, 'forbidden');
       }
 
       // ---------- instalacja: pierwsze konto ----------
@@ -148,17 +174,21 @@ export function createPanelHandler({
             username: validateUsername(username),
             password: validatePassword(password, params.get('repeat') ?? ''),
           };
-          if (errors.username || errors.password) return send(res, 422, setupPage({ values: { username }, errors }));
+          if (errors.username || errors.password) return send(res, 422, setupPage(req.t, { values: { username }, errors }));
           const id = db.createFirstUser(username, await hashPassword(password));
           if (!id) return redirect(res, '/logowanie'); // ktoś właśnie założył konto w innym oknie
           db.touchLogin(id);
-          log(`Utworzono konto administratora „${username}”`);
+          db.setLanguage(id, req.t.lang);
+          // first run: the setup language becomes the language of notifications
+          const ns = loadNotifySettings(db);
+          saveNotifySettings(db, { ...ns, language: req.t.lang });
+          log(`Administrator account created: "${username}"`);
           return redirect(res, '/', { 'set-cookie': auth.sessionCookie(db.getUser(id), isSecure(req)) });
         }
-        return send(res, 200, setupPage({}));
+        return send(res, 200, setupPage(req.t, {}));
       }
       if (needsSetup) {
-        if (p.startsWith('/api/')) return json(res, 503, { error: 'Panel wymaga instalacji' });
+        if (p.startsWith('/api/')) return json(res, 503, { error: 'Setup required' });
         return redirect(res, '/instalacja');
       }
 
@@ -169,48 +199,87 @@ export function createPanelHandler({
           const username = (params.get('username') ?? '').trim();
           const user = await auth.login(username, params.get('password') ?? '');
           if (user) {
-            log(`Logowanie: ${user.username}`);
+            log(`Sign-in: ${user.username}`);
             return redirect(res, '/', { 'set-cookie': auth.sessionCookie(user, isSecure(req)) });
           }
           await sleep(800); // spowalnia zgadywanie hasła
-          return send(res, 401, loginPage({ error: 'Nieprawidłowy login lub hasło.', username }));
+          return send(res, 401, loginPage(req.t, { error: 'errors.login', username }));
         }
         if (auth.currentUser(req)) return redirect(res, '/');
-        return send(res, 200, loginPage({}));
+        return send(res, 200, loginPage(req.t, {}));
       }
       if (p === '/wyloguj' && method === 'POST') return redirect(res, '/logowanie', { 'set-cookie': auth.clearCookie() });
 
       req.user = auth.currentUser(req);
       if (!req.user) {
-        if (p.startsWith('/api/')) return json(res, 401, { error: 'Wymagane logowanie' });
+        if (p.startsWith('/api/')) return json(res, 401, { error: 'Sign-in required' });
         return redirect(res, '/logowanie');
       }
+      req.t = translator(languageOf(req));
+      const t = req.t;
 
       // ---------- konto ----------
+      if (p === '/konto/jezyk' && method === 'POST') {
+        const lang = normalizeLanguage((await readBody(req)).get('language'));
+        if (lang) db.setLanguage(req.user.id, lang);
+        return redirect(res, '/konto?ok=jezyk', lang ? { 'set-cookie': langCookie(lang) } : {});
+      }
       if (p === '/konto') {
         if (method === 'POST') {
           const params = await readBody(req);
           const errors = {};
-          if (!(await verifyPassword(params.get('current') ?? '', req.user.password_hash))) errors.current = 'Obecne hasło jest nieprawidłowe.';
+          if (!(await verifyPassword(params.get('current') ?? '', req.user.password_hash))) errors.current = 'errors.currentPassword';
           errors.password = validatePassword(params.get('password') ?? '', params.get('repeat') ?? '');
           if (errors.current || errors.password) {
-            return page(req, res, 422, { title: 'Konto', active: 'konto', body: accountPage({ user: req.user, errors }) });
+            return page(req, res, 422, { title: t('account.title'), active: 'konto', body: accountPage(t, { user: req.user, errors }) });
           }
           db.setPassword(req.user.id, await hashPassword(params.get('password')));
-          log(`Zmiana hasła: ${req.user.username}`);
+          log(`Password changed: ${req.user.username}`);
           // nowe ciasteczko dla tego urządzenia, pozostałe sesje wygasają
-          return redirect(res, '/konto?zmienione=1', { 'set-cookie': auth.sessionCookie(db.getUser(req.user.id), isSecure(req)) });
+          return redirect(res, '/konto?ok=haslo', { 'set-cookie': auth.sessionCookie(db.getUser(req.user.id), isSecure(req)) });
         }
-        return page(req, res, 200, { title: 'Konto', active: 'konto', body: accountPage({ user: req.user, saved: url.searchParams.has('zmienione') }) });
+        const saved = { haslo: t('account.changed'), jezyk: t('account.languageSaved') }[url.searchParams.get('ok')] ?? null;
+        return page(req, res, 200, { title: t('account.title'), active: 'konto', body: accountPage(t, { user: req.user, saved }) });
+      }
+
+      // ---------- notifications ----------
+      if (p === '/powiadomienia') {
+        const current = loadNotifySettings(db);
+        if (method === 'POST') {
+          const params = await readBody(req);
+          const { settings, errors } = parseNotifyForm(params, current, t.lang);
+          if (Object.keys(errors).length) {
+            return page(req, res, 422, { title: t('notifications.title'), active: 'powiadomienia', body: notificationsPage(t, { settings, errors }) });
+          }
+          saveNotifySettings(db, settings);
+          if (params.get('action') !== 'test') {
+            log('Notification settings saved');
+            return redirect(res, '/powiadomienia?ok=1');
+          }
+          let text;
+          if (!enabledChannels(settings).length) text = t('notifications.testNone');
+          else {
+            const results = await sendToChannels(settings, testMessage(t, settings), { fetchImpl });
+            const ok = results.filter((r) => r.ok).map((r) => r.name);
+            const bad = results.filter((r) => !r.ok).map((r) => `${r.name}: ${r.error}`);
+            text = [ok.length ? t('notifications.testOk', { channels: ok.join(', ') }) : '', bad.length ? t('notifications.testFailed', { errors: bad.join('; ') }) : '']
+              .filter(Boolean)
+              .join(' ');
+            log(`Test notification: ${ok.join(', ') || '-'}${bad.length ? ` (failed: ${bad.join('; ')})` : ''}`);
+          }
+          return page(req, res, 200, { title: t('notifications.title'), active: 'powiadomienia', body: notificationsPage(t, { settings, message: text }) });
+        }
+        const saved = url.searchParams.has('ok') ? t('notifications.savedOk') : null;
+        return page(req, res, 200, { title: t('notifications.title'), active: 'powiadomienia', body: notificationsPage(t, { settings: current, message: saved }) });
       }
 
       // ---------- strony ----------
       if (p === '/' && method === 'GET') {
         const [archives, activeJobs] = [await listArchives(archiveRoot), db.activeJobs()];
         return page(req, res, 200, {
-          title: 'Archiwa',
+          title: t('archives.title'),
           active: 'archiwa',
-          body: archivesPage({ archives, activeJobs, latestJobs: db.latestJobByName(), archiveBase: archiveBase(req), schedules: schedulesByName() }),
+          body: archivesPage(t, { archives, activeJobs, latestJobs: db.latestJobByName(), archiveBase: archiveBase(req), schedules: schedulesByName() }),
         });
       }
 
@@ -219,15 +288,16 @@ export function createPanelHandler({
           const params = await readBody(req);
           const mode = params.get('_mode') === 'retry' ? 'retry' : 'new';
           const { values, errors, job, schedule } = parseJobForm(params);
-          if (!job) return page(req, res, 422, { title: 'Nowa kopia', body: newJobPage({ values, errors, mode }) });
+          if (!job) return page(req, res, 422, { title: t('common.newCopy'), body: newJobPage(t, { values, errors, mode }) });
+          job.options.language = t.lang;
           let saved = null;
           if (schedule) {
             saved = saveSchedule(job, schedule);
-            log(`Harmonogram „${job.name}”: ${describeSchedule(saved)}`);
+            log(`Schedule "${job.name}": ${describeSchedule(translator('en'), saved)}`);
           }
           const id = db.createJob({ ...job, scheduleId: saved?.id ?? null });
           if (saved) db.markScheduleRun(saved.id, { nextRunAt: saved.nextRunAt, jobId: id });
-          log(`Nowe zadanie #${id}: ${job.url}`);
+          log(`New job #${id}: ${job.url}`);
           return redirect(res, `/zadania/${id}`);
         }
         const from = Number(url.searchParams.get('z'));
@@ -236,15 +306,15 @@ export function createPanelHandler({
           ? { ...formFromJob(source), ...scheduleFormValues(db.getScheduleByName(source.name)) }
           : { ...FORM_DEFAULTS, url: url.searchParams.get('url') ?? '' };
         return page(req, res, 200, {
-          title: 'Nowa kopia',
-          body: newJobPage({ values, mode: source ? 'retry' : 'new', back: source ? `/zadania/${source.id}` : '/' }),
+          title: t('common.newCopy'),
+          body: newJobPage(t, { values, mode: source ? 'retry' : 'new', back: source ? `/zadania/${source.id}` : '/' }),
         });
       }
 
       // ---------- harmonogram ----------
       if (p === '/harmonogram' && method === 'GET') {
-        const saved = { usuniety: 'Harmonogram usunięty.', zapisany: 'Harmonogram zapisany.' }[url.searchParams.get('ok')] ?? null;
-        return page(req, res, 200, { title: 'Harmonogram', active: 'harmonogram', body: schedulesPage({ schedules: db.listSchedules(), saved }) });
+        const saved = { usuniety: t('schedules.deleted'), zapisany: t('schedules.saved') }[url.searchParams.get('ok')] ?? null;
+        return page(req, res, 200, { title: t('schedules.title'), active: 'harmonogram', body: schedulesPage(t, { schedules: db.listSchedules(), saved }) });
       }
       const sm = /^\/harmonogram\/(\d+)\/(edytuj|wstrzymaj|wznow|usun)$/.exec(p);
       if (sm) {
@@ -257,28 +327,29 @@ export function createPanelHandler({
             const params = await readBody(req);
             params.set('name', s.name); // nazwa archiwum się nie zmienia
             const { values, errors, job, schedule } = parseJobForm(params);
-            if (!schedule && !errors.repeat) errors.repeat = 'Wybierz, jak często robić kopię';
+            if (!schedule && !errors.repeat) errors.repeat = 'errors.repeatRequired';
             if (!job || Object.keys(errors).length) {
-              return page(req, res, 422, { title: 'Harmonogram', active: 'harmonogram', body: newJobPage({ values, errors, mode: 'schedule', action: formAction, back: '/harmonogram' }) });
+              return page(req, res, 422, { title: t('schedules.title'), active: 'harmonogram', body: newJobPage(t, { values, errors, mode: 'schedule', action: formAction, back: '/harmonogram' }) });
             }
+            job.options.language = s.options?.language ?? t.lang;
             saveSchedule({ ...job, name: s.name }, schedule, { enabled: s.enabled });
-            log(`Harmonogram „${s.name}” zmieniony`);
+            log(`Schedule "${s.name}" changed`);
             return redirect(res, '/harmonogram?ok=zapisany');
           }
           if (method === 'GET') {
             const values = { ...formFromJob({ url: s.url, name: s.name, options: s.options }), ...scheduleFormValues(s) };
-            return page(req, res, 200, { title: 'Harmonogram', active: 'harmonogram', body: newJobPage({ values, mode: 'schedule', action: formAction, back: '/harmonogram' }) });
+            return page(req, res, 200, { title: t('schedules.title'), active: 'harmonogram', body: newJobPage(t, { values, mode: 'schedule', action: formAction, back: '/harmonogram' }) });
           }
         }
         if (method === 'POST' && (action === 'wstrzymaj' || action === 'wznow')) {
           const enable = action === 'wznow';
           db.setScheduleEnabled(s.id, enable, enable ? computeNextRun(s) : null);
-          log(`Harmonogram „${s.name}”: ${enable ? 'wznowiony' : 'wstrzymany'}`);
+          log(`Schedule "${s.name}": ${enable ? 'resumed' : 'paused'}`);
           return redirect(res, '/harmonogram');
         }
         if (method === 'POST' && action === 'usun') {
           db.deleteSchedule(s.id);
-          log(`Harmonogram „${s.name}” usunięty`);
+          log(`Schedule "${s.name}" deleted`);
           return redirect(res, '/harmonogram?ok=usuniety');
         }
       }
@@ -290,24 +361,24 @@ export function createPanelHandler({
         if (!NAME_RE.test(name) || (version && !VERSION_RE.test(version))) return notFound(req, res);
         if (version) {
           const building = db.activeJobs().some((j) => j.name === name && j.version === version);
-          if (building) return page(req, res, 409, { title: 'Nie można usunąć', body: messagePage('Ta wersja właśnie się pobiera', 'Najpierw zatrzymaj zadanie, potem usuń wersję.') });
+          if (building) return message(req, res, 409, 'versionBusy');
           const r = await deleteVersion(archiveRoot, name, version);
-          log(`Usunięto wersję ${name}/${version}`);
+          log(`Version deleted: ${name}/${version}`);
           const back = db.latestJobByName().get(name);
           return redirect(res, r.archiveGone || !back ? '/' : `/zadania/${back}`);
         }
         if (db.hasActiveJob(name)) {
-          return page(req, res, 409, { title: 'Nie można usunąć', body: messagePage('To archiwum właśnie się pobiera', 'Najpierw zatrzymaj zadanie (albo usuń je z kolejki), potem usuń archiwum.') });
+          return message(req, res, 409, 'archiveBusy');
         }
         await deleteArchive(archiveRoot, name);
         db.deleteJobsByName(name);
         db.deleteScheduleByName(name);
-        log(`Usunięto archiwum „${name}”`);
+        log(`Archive deleted: "${name}"`);
         return redirect(res, '/');
       }
 
       if (p === '/zadania' && method === 'GET') {
-        return page(req, res, 200, { title: 'Zadania', active: 'zadania', body: jobsPage({ jobs: db.listJobs({ limit: 100 }) }) });
+        return page(req, res, 200, { title: t('jobs.title'), active: 'zadania', body: jobsPage(t, { jobs: db.listJobs({ limit: 100 }) }) });
       }
 
       const m = /^\/zadania\/(\d+)(?:\/(anuluj|ponow|edytuj|usun))?$/.exec(p);
@@ -319,57 +390,53 @@ export function createPanelHandler({
           const formAction = `/zadania/${job.id}/edytuj`;
           if (method === 'POST') {
             const { values, errors, job: changed } = parseJobForm(await readBody(req));
-            if (!changed) return page(req, res, 422, { title: job.name, active: 'zadania', body: newJobPage({ values, errors, mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
+            if (!changed) return page(req, res, 422, { title: job.name, active: 'zadania', body: newJobPage(t, { values, errors, mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
+            changed.options.language = job.options?.language ?? t.lang;
             if (!db.updateQueuedJob(job.id, changed)) return redirect(res, `/nowa?z=${job.id}`); // właśnie wystartowało
-            log(`Zmienione ustawienia zadania #${job.id}`);
+            log(`Job #${job.id} settings changed`);
             return redirect(res, `/zadania/${job.id}`);
           }
           if (method === 'GET') {
-            return page(req, res, 200, { title: job.name, active: 'zadania', body: newJobPage({ values: formFromJob(job), mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
+            return page(req, res, 200, { title: job.name, active: 'zadania', body: newJobPage(t, { values: formFromJob(job), mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
           }
         }
         if (m[2] === 'usun' && method === 'POST') {
-          if (!db.deleteJob(job.id)) return page(req, res, 409, { title: 'Nie można usunąć', body: messagePage('Zadanie jest w toku', 'Najpierw je zatrzymaj, potem usuń z historii.') });
-          log(`Usunięto zadanie #${job.id} z historii`);
+          if (!db.deleteJob(job.id)) return message(req, res, 409, 'jobBusy');
+          log(`Job #${job.id} deleted from history`);
           return redirect(res, '/zadania');
         }
         if (m[2] && method === 'POST') {
           const params = await readBody(req);
           if (m[2] === 'anuluj') {
             db.requestCancel(job.id);
-            if (job.status === 'running') db.addLog(job.id, 'warn', 'Zatrzymywanie na prośbę z panelu…', 'stop');
-            log(`Zatrzymanie zadania #${job.id}`);
+            if (job.status === 'running') db.addLog(job.id, 'warn', msg('log.stopRequested'), 'stop');
+            log(`Job #${job.id} stop requested`);
             return redirect(res, `/zadania/${job.id}`);
           }
           const id = retry(job, params);
-          log(`Ponowienie zadania #${job.id} jako #${id}`);
+          log(`Job #${job.id} retried as #${id}`);
           return redirect(res, `/zadania/${id}`);
         }
         if (!m[2] && method === 'GET') {
           return page(req, res, 200, {
             title: job.name,
             active: 'zadania',
-            body: jobPage({ job, log: db.getLog(job.id, { limit: 300 }), versions: await versionsOf(job.name), archiveBase: archiveBase(req), schedule: db.getScheduleByName(job.name) }),
+            body: jobPage(t, { job, log: db.getLog(job.id, { limit: 300 }), versions: await versionsOf(job.name), archiveBase: archiveBase(req), schedule: db.getScheduleByName(job.name) }),
           });
         }
       }
 
       // ---------- API do odświeżania ----------
       if (p === '/api/aktywne' && method === 'GET') {
-        return json(res, 200, db.activeJobs().map((j) => jobSummary(j, archiveBase(req))));
+        return json(res, 200, db.activeJobs().map((j) => jobSummary(t, j, archiveBase(req))));
       }
       const api = /^\/api\/zadania\/(\d+)$/.exec(p);
       if (api && method === 'GET') {
         const job = db.getJob(Number(api[1]));
-        if (!job) return json(res, 404, { error: 'Nie ma takiego zadania' });
+        if (!job) return json(res, 404, { error: 'No such job' });
         const after = Number(url.searchParams.get('po')) || 0;
-        const entries = db.getLog(job.id, { afterId: after, limit: 300 }).map((l) => ({
-          id: l.id,
-          at: l.at,
-          message: l.message,
-          ...logLabel(l),
-        }));
-        return json(res, 200, { job: jobSummary(job, archiveBase(req)), log: entries });
+        const entries = db.getLog(job.id, { afterId: after, limit: 300 }).map((l) => logEntry(t, l));
+        return json(res, 200, { job: jobSummary(t, job, archiveBase(req)), log: entries });
       }
 
       if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
@@ -377,10 +444,10 @@ export function createPanelHandler({
       }
       return notFound(req, res);
     } catch (err) {
-      log(`Błąd: ${err.stack || err.message}`);
+      log(`Error: ${err.stack || err.message}`);
       if (res.headersSent) return res.destroy();
-      if (err.status === 413) return send(res, 413, 'Za duże żądanie', { 'content-type': 'text/plain; charset=utf-8' });
-      return page(req, res, 500, { title: 'Błąd', body: messagePage('Błąd serwera', 'Coś poszło nie tak. Szczegóły są w logu.') });
+      if (err.status === 413) return send(res, 413, 'Request too large', { 'content-type': 'text/plain; charset=utf-8' });
+      return message(req, res, 500, 'serverError');
     }
   };
 }

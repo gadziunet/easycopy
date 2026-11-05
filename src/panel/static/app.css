@@ -132,8 +132,8 @@ input[type=text], input[type=url], input[type=number], input[type=password], sel
 .preset input:focus-visible + .preset-box { outline: 2px solid var(--text); outline-offset: 2px; }
 details.card > summary { min-height: 56px; display: flex; align-items: center; padding: 0 24px; font-weight: 600; list-style: none; }
 details.card > summary::-webkit-details-marker { display: none; }
-details.card > summary::after { content: "Rozwiń"; margin-left: auto; font-weight: 400; font-size: 14px; color: var(--muted); }
-details.card[open] > summary::after { content: "Zwiń"; }
+details.card > summary::after { content: attr(data-expand); margin-left: auto; font-weight: 400; font-size: 14px; color: var(--muted); }
+details.card[open] > summary::after { content: attr(data-collapse); }
 details.card[open] > .pad { border-top: 1px solid var(--line); }
 fieldset { margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
 legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
@@ -188,3 +188,12 @@ code { font: 13px var(--mono); background: var(--soft); padding: 2px 6px; border
   .log-row .log-label { grid-column: 2; }
   .log-row .log-msg { grid-column: 2; }
 }
+
+/* language links (setup, sign-in) */
+.lang-links { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+.lang-links a { color: var(--muted); }
+.lang-links strong { color: var(--text); font-weight: 600; }
+
+/* notification channels */
+.channels { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.form-actions .first { order: 2; }

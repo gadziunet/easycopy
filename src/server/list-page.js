@@ -1,33 +1,12 @@
-// Strona główna serwera archiwów: lista kopii.
+// Archive server home page: the list of copies.
 
-import { PROJECT_URL, VERSION, formatSize } from '../worker/settings.js';
+import { PROJECT_URL, VERSION } from '../worker/settings.js';
 
 export function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-const STATUS = {
-  complete: { label: 'Gotowe', dot: 'full' },
-  limit: { label: 'Gotowe (limit)', dot: 'full' },
-  paused: { label: 'Wstrzymane', dot: 'ring' },
-  aborted: { label: 'Przerwane', dot: 'ring' },
-  error: { label: 'Błąd', dot: 'ring' },
-  unknown: { label: '—', dot: 'none' },
-};
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('pl-PL', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-export function plural(n, one, few, many) {
-  if (n === 1) return one;
-  const d = n % 10;
-  const h = n % 100;
-  return d >= 2 && d <= 4 && (h < 12 || h > 14) ? few : many;
-}
+const DOTS = { complete: 'full', limit: 'full', paused: 'ring', aborted: 'ring', error: 'ring' };
 
 function hostOf(url) {
   try {
@@ -74,54 +53,57 @@ code { font:13px ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--s
 
 const LOGO = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="13" height="16" rx="2"/><path d="M8 8h3M8 12h3"/><path d="M16 8h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9"/></svg>`;
 
-function row(a) {
+function row(t, a) {
   const info = a.latestInfo ?? {};
-  const st = STATUS[info.status] ?? STATUS.unknown;
+  const dot = DOTS[info.status] ?? 'none';
+  const label = DOTS[info.status] ? t(`status.${info.status}`) : '—';
   const older = a.versions.filter((v) => v.version !== a.latest);
   const versions = older.length
-    ? `<details><summary>Starsze wersje (${older.length})</summary><ul>${older
-        .map((v) => `<li><a href="/a/${escapeHtml(a.name)}/${escapeHtml(v.version)}/">${escapeHtml(v.version)}</a><span class="sub">${v.bytes != null ? escapeHtml(formatSize(v.bytes)) : ''}</span></li>`)
+    ? `<details><summary>${escapeHtml(t('archiveServer.olderVersions', { count: older.length }))}</summary><ul>${older
+        .map((v) => `<li><a href="/a/${escapeHtml(a.name)}/${escapeHtml(v.version)}/">${escapeHtml(v.version)}</a><span class="sub">${v.bytes != null ? escapeHtml(t.size(v.bytes)) : ''}</span></li>`)
         .join('')}</ul></details>`
     : '';
+  const created = info.createdAt ? Date.parse(info.createdAt) : null;
   return `<tr>
 <td><div class="name">${escapeHtml(a.name)}</div><div class="mono">${escapeHtml(hostOf(a.startUrl))}</div></td>
-<td>${escapeHtml(formatDate(info.createdAt))}<div class="sub">${escapeHtml(a.latest)}</div></td>
+<td>${escapeHtml(t.date(Number.isNaN(created) ? null : created))}<div class="sub">${escapeHtml(a.latest)}</div></td>
 <td>${a.versions.length}</td>
 <td>${info.pages ?? '—'}</td>
-<td>${info.bytes != null ? escapeHtml(formatSize(info.bytes)) : '—'}</td>
-<td><span class="status"><span class="dot ${st.dot}"></span>${escapeHtml(st.label)}</span></td>
-<td><a class="btn" href="/a/${escapeHtml(a.name)}/">Otwórz</a>${versions}</td>
+<td>${info.bytes != null ? escapeHtml(t.size(info.bytes)) : '—'}</td>
+<td><span class="status"><span class="dot ${dot}"></span>${escapeHtml(label)}</span></td>
+<td><a class="btn" href="/a/${escapeHtml(a.name)}/">${escapeHtml(t('archiveServer.open'))}</a>${versions}</td>
 </tr>`;
 }
 
-export function listPageHtml(archives) {
+export function listPageHtml(t, archives) {
   const total = archives.reduce((s, a) => s + (a.latestInfo?.bytes ?? 0), 0);
+  const c = (k) => escapeHtml(t(`archiveServer.${k}`));
   const body = archives.length
     ? `<div class="scroll"><table>
-<thead><tr><th>Strona</th><th>Ostatnia kopia</th><th>Wersje</th><th>Strony</th><th>Rozmiar</th><th>Status</th><th>Akcje</th></tr></thead>
-<tbody>${archives.map(row).join('\n')}</tbody></table></div>`
-    : `<div class="empty">Nie ma jeszcze żadnych kopii. Zrób pierwszą poleceniem <code>easycopy https://www.example.com/</code></div>`;
+<thead><tr><th>${c('colSite')}</th><th>${c('colLastCopy')}</th><th>${c('colVersions')}</th><th>${c('colPages')}</th><th>${c('colSize')}</th><th>${c('colStatus')}</th><th>${c('colActions')}</th></tr></thead>
+<tbody>${archives.map((a) => row(t, a)).join('\n')}</tbody></table></div>`
+    : `<div class="empty">${escapeHtml(t('archiveServer.empty', { cmd: '\u0000' })).replace('\u0000', '<code>easycopy https://www.example.com/</code>')}</div>`;
   return `<!doctype html>
-<html lang="pl">
+<html lang="${t.lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Archiwa – EasyCopy</title>
+<title>${c('title')} – EasyCopy</title>
 <style>${STYLE}</style>
 </head>
 <body>
 <header><div class="wrap bar">${LOGO}<span>EasyCopy</span></div></header>
 <main class="wrap">
 <div>
-<h1>Archiwa</h1>
-<p class="lead">${archives.length} ${plural(archives.length, 'archiwum', 'archiwa', 'archiwów')} · ${escapeHtml(formatSize(total))} (najnowsze wersje)</p>
+<h1>${c('title')}</h1>
+<p class="lead">${escapeHtml(t('archiveServer.summary', { count: t.count(archives.length, 'units.archives'), size: t.size(total) }))}</p>
 </div>
-<section class="card" aria-label="Lista archiwów">
+<section class="card" aria-label="${c('listLabel')}">
 ${body}
 </section>
 </main>
-<footer class="wrap">EasyCopy ${escapeHtml(VERSION)} · <a href="${escapeHtml(PROJECT_URL)}" rel="noopener noreferrer">Kod źródłowy</a> (licencja AGPL-3.0)</footer>
+<footer class="wrap">EasyCopy ${escapeHtml(VERSION)} · <a href="${escapeHtml(PROJECT_URL)}" rel="noopener noreferrer">${escapeHtml(t('common.sourceCode'))}</a> ${escapeHtml(t('common.license'))}</footer>
 </body>
 </html>
 `;

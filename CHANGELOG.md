@@ -1,27 +1,32 @@
-# Zmiany
+# Changelog
 
-## Niewydane (powstaje 0.1.0)
+## Unreleased (0.1.0 in progress)
 
-- Kopia strony z wiersza poleceń: presety tempa, głębokość, limity stron i rozmiaru,
-  pomijanie typów plików i wzorców adresów, wybór User-Agenta.
-- Przepisywanie linków na względne w trakcie pobierania, zasoby z CDN w `_ext/`,
-  strona `_brak.html` dla niepobranych podstron, konwersja kodowania na UTF-8.
-- Grzeczny crawler: tempo na host, `robots.txt`, `Crawl-delay`, reakcja na 429/503
-  i strony weryfikacji Cloudflare (zwolnienie, pauza – bez obchodzenia zabezpieczeń).
-- Wersje kopii z datą i dowiązaniem `latest`, `manifest.json` w każdej kopii.
-- Serwer archiwów: lista kopii, `/a/<nazwa>/`, nagłówek CSP sandbox, ochrona przed
-  wyjściem poza katalog, Range, gzip/brotli, ETag, opcjonalne hasło.
-- Panel WWW (`easycopy start`): lista archiwów, nowa kopia z presetami i ustawieniami
-  zaawansowanymi, kolejka i historia zadań, postęp i dziennik na żywo, anulowanie, ponowienie
-  (także „jako Delikatny” lub za 10 minut), ochrona formularzy.
-- Kreator pierwszego uruchomienia: konto administratora zakładane w przeglądarce, hasła
-  hashowane scryptem, zmiana hasła w zakładce Konto (wylogowuje inne urządzenia),
-  `easycopy reset-password` na wypadek zapomnianego hasła.
-- Harmonogram kopii (codziennie, co tydzień, co miesiąc o wybranej godzinie) ze stroną do
-  wstrzymywania, edycji i usuwania; terminy pomijane, gdy poprzednia kopia jeszcze trwa.
-- Zatrzymanie trwającego pobierania, poprawa ustawień zadania w kolejce, „Popraw ustawienia”
-  dla zakończonych zadań; usuwanie archiwum, pojedynczej wersji i wpisu z historii.
-- Czytelny dziennik zadania: etykiety, opisy błędów HTTP po polsku, filtr „Tylko problemy”.
-- Worker w osobnym procesie, kolejka w bazie SQLite (wbudowany `node:sqlite`), ostrzeżenie
-  o bazie na udziale sieciowym.
-- Obraz Docker (amd64, arm64) z PUID/PGID i healthcheckiem, przykładowy `docker-compose.yml`.
+- Website copy from the command line: speed presets, depth, page and size limits,
+  skipping file types and address patterns, User-Agent choice.
+- Links rewritten to relative ones while downloading, CDN assets in `_ext/`,
+  a `_brak.html` page for subpages that weren’t downloaded, conversion to UTF-8.
+- Polite crawler: per-host rate, `robots.txt`, `Crawl-delay`, reacting to 429/503
+  and Cloudflare challenge pages (slowing down, pausing – never bypassing protections).
+- Dated copy versions with a `latest` link and a `manifest.json` in every copy.
+- Archive server: list of copies, `/a/<name>/`, CSP sandbox header, protection against
+  leaving the folder, Range, gzip/brotli, ETag, optional password.
+- Web panel (`easycopy start`): archive list, new copy with presets and advanced settings,
+  job queue and history, live progress and log, cancelling, retrying
+  (also “as Gentle” or in 10 minutes), form protection.
+- First-run wizard: the administrator account is created in the browser, passwords hashed
+  with scrypt, password change on the Account page (signs out other devices),
+  `easycopy reset-password` for a forgotten password.
+- Schedule (daily, weekly, monthly at a chosen time) with a page to pause, edit and delete
+  schedules; runs are skipped while the previous copy is still running.
+- Stopping a running download, changing a queued job, “Change settings” for finished jobs;
+  deleting an archive, a single version or a history entry.
+- Readable job log: labels, HTTP errors described in words, a “Problems only” filter.
+- Notifications: ntfy, Gotify, Pushover, Discord and a JSON webhook; events (finished, limit,
+  paused, error), “scheduled copies only”, a test button, results in the job log.
+- English and Polish: panel, archive server, `_brak.html` (in the visitor’s browser language)
+  and the command line; English is the default, language choice on the sign-in and Account pages,
+  `EASYCOPY_LANG` for the default language.
+- Worker in a separate process, queue in an SQLite database (built-in `node:sqlite`), a warning
+  when the database is on a network share.
+- Docker image (amd64, arm64) with PUID/PGID and a healthcheck, example `docker-compose.yml`.

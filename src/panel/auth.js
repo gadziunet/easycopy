@@ -3,23 +3,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { DUMMY_HASH, verifyPassword } from './accounts.js';
+import { parseCookies } from '../shared/cookies.js';
 
 const COOKIE = 'ec_session';
 const MAX_AGE_S = 30 * 24 * 3600;
 
-export function parseCookies(header = '') {
-  const out = {};
-  for (const part of header.split(';')) {
-    const idx = part.indexOf('=');
-    if (idx === -1) continue;
-    try {
-      out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
-    } catch {
-      // uszkodzone ciasteczko – pomijamy
-    }
-  }
-  return out;
-}
+export { parseCookies };
 
 /**
  * Sesja = id konta + data ważności + podpis HMAC. Podpis obejmuje klucz sesji konta,
