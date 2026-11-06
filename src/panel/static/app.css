@@ -197,3 +197,11 @@ code { font: 13px var(--mono); background: var(--soft); padding: 2px 6px; border
 /* notification channels */
 .channels { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
 .form-actions .first { order: 2; }
+
+/* tables: no breaking of names, addresses, dates and sizes (narrow screens scroll the table) */
+td { white-space: nowrap; }
+td .mono { word-break: normal; }
+td, th { padding-left: 12px; padding-right: 12px; }
+td:first-child, th:first-child { padding-left: 24px; }
+td:last-child, th:last-child { padding-right: 24px; }
+td.actions > * { margin-left: 4px; }
