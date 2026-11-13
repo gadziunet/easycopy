@@ -1,4 +1,4 @@
-// Układ katalogów archiwum: <katalog>/<nazwa>/<data>/ oraz dowiązanie „latest”.
+// Archive directory layout: <directory>/<name>/<date>/ and the "latest" symlink.
 
 import { mkdir, readdir, rm, symlink, lstat } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,7 +11,7 @@ function today(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** Tworzy katalog nowej wersji: 2026-11-04, a przy kolejnej kopii tego dnia 2026-11-04-2 itd. */
+/** Creates the directory of a new version: 2026-11-04, and for another copy on the same day 2026-11-04-2, etc. */
 export async function createVersionDir(archiveRoot, name, date = new Date()) {
   const siteDir = path.join(path.resolve(archiveRoot), name);
   await mkdir(siteDir, { recursive: true });
@@ -24,13 +24,13 @@ export async function createVersionDir(archiveRoot, name, date = new Date()) {
   return { siteDir, version, dir };
 }
 
-/** Ustawia dowiązanie <nazwa>/latest → <wersja>. Na systemach bez dowiązań po prostu pomija. */
+/** Sets the <name>/latest → <version> symlink. On systems without symlinks it is simply skipped. */
 export async function updateLatest(siteDir, version) {
   const link = path.join(siteDir, 'latest');
   try {
     const st = await lstat(link).catch(() => null);
     if (st?.isSymbolicLink()) await rm(link);
-    else if (st) return false; // coś innego o tej nazwie – nie ruszamy
+    else if (st) return false; // something else with this name – we leave it alone
     await symlink(version, link, 'dir');
     return true;
   } catch {
@@ -42,7 +42,7 @@ export function defaultName(startUrl) {
   return slugify(new URL(startUrl).hostname.replace(/^www\./, ''));
 }
 
-/** Robi kopię witryny w <archiveRoot>/<name>/<data>/ i zwraca { dir, manifest }. */
+/** Makes a copy of the site in <archiveRoot>/<name>/<date>/ and returns { dir, manifest }. */
 export async function archiveSite({ archiveRoot, name, onCrawler, ...options }) {
   const archiveName = name ? slugify(name) : defaultName(options.startUrl);
   const { siteDir, version, dir } = await createVersionDir(archiveRoot, archiveName);

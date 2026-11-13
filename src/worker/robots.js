@@ -1,4 +1,4 @@
-// Minimalny parser robots.txt: grupy User-agent, Allow/Disallow z * i $, Crawl-delay.
+// Minimal robots.txt parser: User-agent groups, Allow/Disallow with * and $, Crawl-delay.
 
 export function parseRobots(text) {
   const groups = [];
@@ -25,7 +25,7 @@ export function parseRobots(text) {
     lastWasAgent = false;
     if (!current) continue;
     if (key === 'allow' || key === 'disallow') {
-      if (key === 'disallow' && value === '') continue; // pusty Disallow = wszystko dozwolone
+      if (key === 'disallow' && value === '') continue; // empty Disallow = everything allowed
       current.rules.push({ allow: key === 'allow', pattern: value });
     } else if (key === 'crawl-delay') {
       const n = Number(value);
@@ -56,7 +56,7 @@ export class Robots {
     this.crawlDelay = delays.length ? Math.max(...delays) : null;
   }
 
-  /** Czy ścieżka (pathname + search) jest dozwolona? Wygrywa najdłuższa reguła, przy remisie Allow. */
+  /** Is the path (pathname + search) allowed? The longest rule wins; on a tie, Allow wins. */
   isAllowed(pathWithQuery) {
     let best = null;
     for (const r of this.rules) {

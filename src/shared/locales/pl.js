@@ -1,4 +1,4 @@
-// Tłumaczenia polskie.
+// Polish translations.
 
 export default {
   common: {
@@ -279,6 +279,15 @@ export default {
     forbidden: 'serwer nie daje dostępu ({status})',
     server: 'błąd serwera ({status})',
     rejected: 'serwer odrzucił zapytanie ({status})',
+  },
+  netErrors: {
+    dns: 'nie znaleziono adresu – sprawdź DNS',
+    dnsTemporary: 'serwer DNS nie odpowiada',
+    timeout: 'przekroczony czas połączenia',
+    refused: 'połączenie odrzucone',
+    reset: 'połączenie przerwane',
+    unreachable: 'serwer nieosiągalny',
+    tls: 'błąd certyfikatu ({code})',
   },
   statusWords: {
     complete: 'Gotowe',

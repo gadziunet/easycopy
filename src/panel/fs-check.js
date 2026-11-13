@@ -1,5 +1,5 @@
-// Ostrzeżenie, gdy baza leży na udziale sieciowym (NFS, SMB) albo na FUSE (np. /mnt/user w Unraid).
-// SQLite na takich systemach plików może uszkodzić bazę, bo blokady plików tam zawodzą.
+// Warning when the database is on a network share (NFS, SMB) or on FUSE (e.g. /mnt/user on Unraid).
+// SQLite on such file systems can corrupt the database, because file locking is unreliable there.
 
 import { statfsSync } from 'node:fs';
 
@@ -13,7 +13,7 @@ const RISKY = {
   0x65735546: 'FUSE',
 };
 
-/** Zwraca nazwę ryzykownego systemu plików albo null. */
+/** Returns the name of the risky file system, or null. */
 export function riskyFilesystem(dir) {
   try {
     const { type } = statfsSync(dir);

@@ -31,7 +31,7 @@ function main() {
     process.exit(1);
   }
 
-  // panel ładujemy dopiero przy „start” – samo robienie kopii nie potrzebuje bazy SQLite
+  // load the panel only on "start" – making a copy alone does not need the SQLite database
   const runStart = (args) => import('./panel/start.js').then((m) => m.runStart(args));
   const runReset = (args) => import('./panel/reset-password.js').then((m) => m.runResetPassword(args));
   const command = { serve: runServe, start: runStart, 'reset-password': runReset }[process.argv[2]];
@@ -121,7 +121,7 @@ function main() {
     crawlerRef.abort();
   };
   process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal); // np. docker stop
+  process.on('SIGTERM', onSignal); // e.g. docker stop
 
   log(`EasyCopy ${VERSION}: ${startUrl}`);
 
@@ -134,7 +134,7 @@ function main() {
         const size = t.size(e.bytes ?? 0).padStart(8);
         log(`  ${String(e.httpStatus ?? '').padEnd(3)} ${size}  ${e.url}`);
       });
-      crawler.on('failed', (e) => log(`  ${String(e.httpStatus ?? 'ERR').padEnd(3)}           ${e.url}${e.error ? `  (${e.error})` : ''}`));
+      crawler.on('failed', (e) => log(`  ${String(e.httpStatus ?? 'ERR').padEnd(3)}           ${e.url}${e.error ? `  (${localize(t, e.error)})` : ''}`));
       crawler.on('block', (b) => log(t('cli.block', { message: localize(t, b.message), host: b.host, seconds: Math.round(b.waitMs / 1000) })));
       crawler.on('paused', (p) => log(t('cli.paused', { message: localize(t, p.message), host: p.host })));
       crawler.on('limit', () => log(t('cli.limit')));

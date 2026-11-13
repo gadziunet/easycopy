@@ -35,7 +35,7 @@ test('pliki bez rozszerzenia dostają .bin, a linki do plików zachowują rozsze
 
 test('polskie znaki i niebezpieczne nazwy', () => {
   assert.equal(urlToLocalPath('https://www.example.com/zdj%C4%99cie%201.jpg', 'asset', site), 'zdjęcie 1.jpg');
-  assert.equal(urlToLocalPath('https://www.example.com/a/%2e%2e/b.png', 'asset', site), 'b.png'); // URL sam usuwa ..
+  assert.equal(urlToLocalPath('https://www.example.com/a/%2e%2e/b.png', 'asset', site), 'b.png'); // the URL parser removes .. by itself
   assert.equal(urlToLocalPath('https://www.example.com/a:b*c.png', 'asset', site), 'a-b-c.png');
 });
 

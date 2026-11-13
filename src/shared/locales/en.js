@@ -280,6 +280,15 @@ export default {
     server: 'server error ({status})',
     rejected: 'the server rejected the request ({status})',
   },
+  netErrors: {
+    dns: 'address not found – check DNS',
+    dnsTemporary: 'the DNS server is not responding',
+    timeout: 'connection timed out',
+    refused: 'connection refused',
+    reset: 'connection interrupted',
+    unreachable: 'server unreachable',
+    tls: 'certificate error ({code})',
+  },
   statusWords: {
     complete: 'Done',
     limit: 'Done – limit reached',

@@ -91,7 +91,7 @@ export async function runStart(argv) {
     process.exit(1);
   }
 
-  // worker w osobnym procesie – po awarii uruchamiany ponownie
+  // worker in a separate process – restarted after a crash
   let worker = null;
   let stopping = false;
   const startWorker = () => {
@@ -113,7 +113,7 @@ export async function runStart(argv) {
   };
   startWorker();
 
-  // harmonogram: co 30 s sprawdzamy, czy minął termin którejś kopii cyklicznej
+  // scheduler: every 30 s we check whether a recurring copy is due
   const tick = () => {
     try {
       schedulerTick(db, Date.now(), log);

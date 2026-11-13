@@ -1,12 +1,12 @@
-// Wykrywanie kodowania znaków i dekodowanie do tekstu.
+// Character encoding detection and decoding to text.
 
-/** Kodowanie z nagłówka Content-Type, np. "text/html; charset=ISO-8859-2". */
+/** Encoding from the Content-Type header, e.g. "text/html; charset=ISO-8859-2". */
 export function charsetFromContentType(contentType) {
   const m = /charset\s*=\s*"?([^";\s]+)/i.exec(contentType || '');
   return m ? m[1].toLowerCase() : null;
 }
 
-/** Kodowanie z <meta charset> lub <meta http-equiv="Content-Type"> w pierwszych 4 KB. */
+/** Encoding from <meta charset> or <meta http-equiv="Content-Type"> in the first 4 KB. */
 export function charsetFromHtmlBytes(buf) {
   const head = buf.subarray(0, 4096).toString('latin1');
   let m = /<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9_.:-]+)/i.exec(head);
@@ -22,7 +22,7 @@ function bomCharset(buf) {
   return null;
 }
 
-/** Dekoduje bajty do tekstu. Nieznane kodowanie → UTF-8. */
+/** Decodes bytes to text. Unknown encoding → UTF-8. */
 export function decodeText(buf, charset) {
   const enc = bomCharset(buf) || charset || 'utf-8';
   let decoder;

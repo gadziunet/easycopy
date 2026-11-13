@@ -58,9 +58,9 @@ function readBody(req) {
 }
 
 /**
- * options: db, archiveRoot, archivePort (8081; 0 = archiwa na porcie panelu pod /a/…),
- *          archivePassword (tryb jednego portu), archiveBaseUrl (opcjonalnie),
- *          warning (np. ostrzeżenie o systemie plików), log,
+ * options: db, archiveRoot, archivePort (8081; 0 = archives on the panel port under /a/…),
+ *          archivePassword (single-port mode), archiveBaseUrl (optional),
+ *          warning (e.g. a file system warning), log,
  *          defaultLanguage (EASYCOPY_LANG; otherwise the browser language, then English),
  *          fetchImpl (notification tests)
  */
@@ -68,7 +68,7 @@ export function createPanelHandler({
   db, archiveRoot, archivePort = 8081, archivePassword = null, archiveBaseUrl = null, warning = null, log = () => {},
   defaultLanguage = null, fetchImpl = fetch,
 }) {
-  // tryb jednego portu: panel sam wydaje archiwa (te same zabezpieczenia co osobny serwer)
+  // single-port mode: the panel serves the archives itself (same protections as the separate server)
   const archiveHandler = archivePort === 0 ? createArchiveHandler({ archiveRoot, password: archivePassword, defaultLanguage }) : null;
   const fixedDefault = normalizeLanguage(defaultLanguage);
 
@@ -83,8 +83,8 @@ export function createPanelHandler({
 
   const archiveBase = (req) => {
     if (archiveBaseUrl) return archiveBaseUrl.replace(/\/+$/, '');
-    if (archiveHandler) return ''; // ten sam adres co panel: /a/<nazwa>/
-    // ten sam host co panel, port serwera archiwów
+    if (archiveHandler) return ''; // same address as the panel: /a/<name>/
+    // same host as the panel, archive server port
     const host = (req.headers.host || 'localhost').replace(/:\d+$/, '');
     return `http://${host}:${archivePort}`;
   };
@@ -146,8 +146,8 @@ export function createPanelHandler({
       }
 
       if (p === '/healthz') return send(res, 200, 'ok', { 'content-type': 'text/plain; charset=utf-8' });
-      // archiwa w trybie jednego portu – bez logowania do panelu: kopia w sandboxie i tak nie dostaje
-      // ciasteczek panelu, więc obrazki i CSS by się nie ładowały. Chroni je ARCHIVE_PASSWORD.
+      // archives in single-port mode – no panel login: a sandboxed copy does not get
+      // the panel cookies anyway, so images and CSS would not load. ARCHIVE_PASSWORD protects them.
       if (archiveHandler && (p === '/a' || p.startsWith('/a/'))) return archiveHandler(req, res);
       if (STATIC[p] && (method === 'GET' || method === 'HEAD')) {
         res.writeHead(200, { 'content-type': STATIC[p].type, 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' });
@@ -162,7 +162,7 @@ export function createPanelHandler({
         return message(req, res, 403, 'forbidden');
       }
 
-      // ---------- instalacja: pierwsze konto ----------
+      // ---------- setup: first account ----------
       const needsSetup = auth.needsSetup();
       if (p === '/instalacja') {
         if (!needsSetup) return redirect(res, '/');
@@ -176,7 +176,7 @@ export function createPanelHandler({
           };
           if (errors.username || errors.password) return send(res, 422, setupPage(req.t, { values: { username }, errors }));
           const id = db.createFirstUser(username, await hashPassword(password));
-          if (!id) return redirect(res, '/logowanie'); // ktoś właśnie założył konto w innym oknie
+          if (!id) return redirect(res, '/logowanie'); // someone has just created the account in another window
           db.touchLogin(id);
           db.setLanguage(id, req.t.lang);
           // first run: the setup language becomes the language of notifications
@@ -192,7 +192,7 @@ export function createPanelHandler({
         return redirect(res, '/instalacja');
       }
 
-      // ---------- logowanie ----------
+      // ---------- sign-in ----------
       if (p === '/logowanie') {
         if (method === 'POST') {
           const params = await readBody(req);
@@ -202,7 +202,7 @@ export function createPanelHandler({
             log(`Sign-in: ${user.username}`);
             return redirect(res, '/', { 'set-cookie': auth.sessionCookie(user, isSecure(req)) });
           }
-          await sleep(800); // spowalnia zgadywanie hasła
+          await sleep(800); // slows down password guessing
           return send(res, 401, loginPage(req.t, { error: 'errors.login', username }));
         }
         if (auth.currentUser(req)) return redirect(res, '/');
@@ -218,7 +218,7 @@ export function createPanelHandler({
       req.t = translator(languageOf(req));
       const t = req.t;
 
-      // ---------- konto ----------
+      // ---------- account ----------
       if (p === '/konto/jezyk' && method === 'POST') {
         const lang = normalizeLanguage((await readBody(req)).get('language'));
         if (lang) db.setLanguage(req.user.id, lang);
@@ -235,7 +235,7 @@ export function createPanelHandler({
           }
           db.setPassword(req.user.id, await hashPassword(params.get('password')));
           log(`Password changed: ${req.user.username}`);
-          // nowe ciasteczko dla tego urządzenia, pozostałe sesje wygasają
+          // new cookie for this device, other sessions expire
           return redirect(res, '/konto?ok=haslo', { 'set-cookie': auth.sessionCookie(db.getUser(req.user.id), isSecure(req)) });
         }
         const saved = { haslo: t('account.changed'), jezyk: t('account.languageSaved') }[url.searchParams.get('ok')] ?? null;
@@ -273,7 +273,7 @@ export function createPanelHandler({
         return page(req, res, 200, { title: t('notifications.title'), active: 'powiadomienia', body: notificationsPage(t, { settings: current, message: saved }) });
       }
 
-      // ---------- strony ----------
+      // ---------- pages ----------
       if (p === '/' && method === 'GET') {
         const [archives, activeJobs] = [await listArchives(archiveRoot), db.activeJobs()];
         return page(req, res, 200, {
@@ -311,7 +311,7 @@ export function createPanelHandler({
         });
       }
 
-      // ---------- harmonogram ----------
+      // ---------- schedule ----------
       if (p === '/harmonogram' && method === 'GET') {
         const saved = { usuniety: t('schedules.deleted'), zapisany: t('schedules.saved') }[url.searchParams.get('ok')] ?? null;
         return page(req, res, 200, { title: t('schedules.title'), active: 'harmonogram', body: schedulesPage(t, { schedules: db.listSchedules(), saved }) });
@@ -325,7 +325,7 @@ export function createPanelHandler({
           const formAction = `/harmonogram/${s.id}/edytuj`;
           if (method === 'POST') {
             const params = await readBody(req);
-            params.set('name', s.name); // nazwa archiwum się nie zmienia
+            params.set('name', s.name); // the archive name does not change
             const { values, errors, job, schedule } = parseJobForm(params);
             if (!schedule && !errors.repeat) errors.repeat = 'errors.repeatRequired';
             if (!job || Object.keys(errors).length) {
@@ -354,7 +354,7 @@ export function createPanelHandler({
         }
       }
 
-      // ---------- usuwanie archiwów ----------
+      // ---------- deleting archives ----------
       const am = /^\/archiwa\/([^/]+)(?:\/([^/]+))?\/usun$/.exec(p);
       if (am && method === 'POST') {
         const [, name, version] = am;
@@ -386,13 +386,13 @@ export function createPanelHandler({
         const job = db.getJob(Number(m[1]));
         if (!job) return notFound(req, res);
         if (m[2] === 'edytuj') {
-          if (job.status !== 'queued') return redirect(res, `/nowa?z=${job.id}`); // już ruszyło – nowa kopia z poprawkami
+          if (job.status !== 'queued') return redirect(res, `/nowa?z=${job.id}`); // already started – new copy with the corrections
           const formAction = `/zadania/${job.id}/edytuj`;
           if (method === 'POST') {
             const { values, errors, job: changed } = parseJobForm(await readBody(req));
             if (!changed) return page(req, res, 422, { title: job.name, active: 'zadania', body: newJobPage(t, { values, errors, mode: 'edit-job', action: formAction, back: `/zadania/${job.id}` }) });
             changed.options.language = job.options?.language ?? t.lang;
-            if (!db.updateQueuedJob(job.id, changed)) return redirect(res, `/nowa?z=${job.id}`); // właśnie wystartowało
+            if (!db.updateQueuedJob(job.id, changed)) return redirect(res, `/nowa?z=${job.id}`); // has just started
             log(`Job #${job.id} settings changed`);
             return redirect(res, `/zadania/${job.id}`);
           }
@@ -426,7 +426,7 @@ export function createPanelHandler({
         }
       }
 
-      // ---------- API do odświeżania ----------
+      // ---------- refresh API ----------
       if (p === '/api/aktywne' && method === 'GET') {
         return json(res, 200, db.activeJobs().map((j) => jobSummary(t, j, archiveBase(req))));
       }

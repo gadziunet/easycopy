@@ -1,4 +1,4 @@
-// Formularz „Nowa kopia”: wartości domyślne, odczyt i walidacja.
+// "New copy" form: default values, reading and validation.
 
 import { BROWSERS, PRESETS, SYSTEMS, parseSize, slugify } from '../worker/settings.js';
 import { FREQUENCIES } from './scheduler.js';
@@ -41,7 +41,7 @@ export const FORM_DEFAULTS = {
   monthday: '1',
 };
 
-/** Pola harmonogramu z zapisanego harmonogramu. */
+/** Schedule fields from a saved schedule. */
 export function scheduleFormValues(schedule) {
   if (!schedule) return {};
   return {
@@ -54,7 +54,7 @@ export function scheduleFormValues(schedule) {
 
 const list = (text) => String(text || '').split(',').map((s) => s.trim()).filter(Boolean);
 
-/** Wartości formularza z opcji istniejącego zadania (np. „Nowa kopia z tymi ustawieniami”). */
+/** Form values from an existing job's options (e.g. "New copy with these settings"). */
 export function formFromJob(job) {
   const o = job.options || {};
   const size = SIZE_OPTIONS.find((s) => parseSize(s.value) === o.maxBytes);
@@ -79,8 +79,8 @@ export function formFromJob(job) {
 }
 
 /**
- * Odczytuje formularz (URLSearchParams). Zwraca { values, errors, job }.
- * job = { url, name, options } – gotowe do zapisania, gdy brak błędów.
+ * Reads the form (URLSearchParams). Returns { values, errors, job }.
+ * job = { url, name, options } – ready to save when there are no errors.
  */
 export function parseJobForm(params) {
   const get = (k) => (params.get(k) ?? '').trim();

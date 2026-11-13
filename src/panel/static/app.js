@@ -22,13 +22,13 @@
     });
   }
 
-  // ---------- potwierdzenia ----------
+  // ---------- confirmations ----------
   document.addEventListener('submit', function (ev) {
     var msg = ev.target.getAttribute && ev.target.getAttribute('data-confirm');
     if (msg && !window.confirm(msg)) ev.preventDefault();
   });
 
-  // ---------- formularz: User-Agent ----------
+  // ---------- form: User-Agent ----------
   function initUaForm() {
     var browser = document.querySelector('[data-ua-browser]');
     if (!browser) return;
@@ -43,7 +43,7 @@
     update();
   }
 
-  // ---------- formularz: harmonogram ----------
+  // ---------- form: schedule ----------
   function initRepeat() {
     var repeat = document.querySelector('[data-repeat]');
     if (!repeat) return;
@@ -57,22 +57,22 @@
     update();
   }
 
-  // ---------- dziennik: filtr ----------
+  // ---------- log: filter ----------
   function initLogFilter() {
     var sel = document.querySelector('[data-log-filter]');
     var box = document.querySelector('.log');
     if (!sel || !box) return;
     var key = 'easycopy-log-filter';
-    try { if (localStorage.getItem(key)) sel.value = localStorage.getItem(key); } catch (e) { /* bez pamięci */ }
+    try { if (localStorage.getItem(key)) sel.value = localStorage.getItem(key); } catch (e) { /* no storage */ }
     function update() {
       box.classList.toggle('only-problems', sel.value === 'problems');
-      try { localStorage.setItem(key, sel.value); } catch (e) { /* bez pamięci */ }
+      try { localStorage.setItem(key, sel.value); } catch (e) { /* no storage */ }
     }
     sel.addEventListener('change', update);
     update();
   }
 
-  // ---------- strona główna: W toku ----------
+  // ---------- home page: In progress ----------
   function initActive() {
     var section = document.querySelector('[data-poll="active"]');
     if (!section) return;
@@ -80,7 +80,7 @@
     function tick() {
       getJson('/api/aktywne').then(function (jobs) {
         var ids = jobs.map(function (j) { return String(j.id); });
-        // zadanie się skończyło albo pojawiło nowe – przeładuj, żeby odświeżyć listę archiwów
+        // a job finished or a new one appeared – reload to refresh the archive list
         var changed = ids.length !== known.length || ids.some(function (id) { return known.indexOf(id) === -1; });
         if (changed) { location.reload(); return; }
         jobs.forEach(function (j) {
@@ -97,7 +97,7 @@
     if (known.length) setTimeout(tick, POLL_MS);
   }
 
-  // ---------- szczegóły zadania ----------
+  // ---------- job details ----------
   function initJob() {
     var root = document.querySelector('[data-job-id]');
     if (!root) return;

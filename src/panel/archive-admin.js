@@ -1,4 +1,4 @@
-// Usuwanie archiwów i wersji z dysku – z kontrolą ścieżek (nic poza katalogiem archiwów).
+// Deleting archives and versions from disk – with path checks (nothing outside the archive directory).
 
 import { lstat, readlink, rm, symlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,7 +21,7 @@ function siteDir(root, name) {
   return dir;
 }
 
-/** Usuwa całe archiwum (wszystkie wersje). Zwraca true, gdy coś usunięto. */
+/** Deletes a whole archive (all versions). Returns true if something was deleted. */
 export async function deleteArchive(root, name) {
   const dir = siteDir(root, name);
   if (!(await isRealDir(dir))) return false;
@@ -29,14 +29,14 @@ export async function deleteArchive(root, name) {
   return true;
 }
 
-/** Ustawia „latest” na najnowszą wersję albo je usuwa, gdy wersji już nie ma. */
+/** Points "latest" to the newest version, or removes it when no versions are left. */
 async function fixLatest(dir, versions) {
   const link = path.join(dir, 'latest');
   let current = null;
   try {
     current = await readlink(link);
   } catch {
-    // brak dowiązania
+    // no symlink
   }
   const newest = versions[versions.length - 1] ?? null;
   if (current === newest) return;
@@ -45,8 +45,8 @@ async function fixLatest(dir, versions) {
 }
 
 /**
- * Usuwa jedną wersję archiwum. Gdy była najnowsza, „latest” przechodzi na poprzednią.
- * Gdy była jedyna – znika całe archiwum. Zwraca { deleted, archiveGone }.
+ * Deletes one archive version. If it was the newest, "latest" moves to the previous one.
+ * If it was the only one, the whole archive is removed. Returns { deleted, archiveGone }.
  */
 export async function deleteVersion(root, name, version) {
   if (!VERSION_RE.test(version)) throw new Error('Invalid version');

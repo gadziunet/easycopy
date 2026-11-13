@@ -1,4 +1,4 @@
-// Konta panelu: hasła (scrypt z solą) i walidacja.
+// Panel accounts: passwords (salted scrypt) and validation.
 
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -11,7 +11,7 @@ export const USERNAME_RE = /^[a-zA-Z0-9._-]{3,32}$/;
 export const MIN_PASSWORD = 8;
 const MAX_PASSWORD = 200;
 
-/** Hasło → „scrypt$N$r$p$sól$skrót” (do zapisania w bazie). */
+/** Password → "scrypt$N$r$p$salt$hash" (stored in the database). */
 export async function hashPassword(password) {
   const salt = randomBytes(16);
   const hash = await scrypt(password.normalize('NFKC'), salt, KEY_LEN, PARAMS);
@@ -29,7 +29,7 @@ export async function verifyPassword(password, stored) {
   return timingSafeEqual(actual, expected);
 }
 
-/** Skrót „na pusto” – logowanie na nieistniejący login trwa tyle samo co na istniejący. */
+/** Dummy hash – logging in with a non-existent username takes as long as with an existing one. */
 export const DUMMY_HASH = await hashPassword(randomBytes(16).toString('hex'));
 
 /** Returns null or an error key (errors.*), possibly { key, params }. */
@@ -45,7 +45,7 @@ export function validateUsername(username) {
   return null;
 }
 
-/** Losowe hasło do resetu z wiersza poleceń (bez łatwych do pomylenia znaków). */
+/** Random password for a command-line reset (without easily confused characters). */
 export function randomPassword(length = 16) {
   const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = randomBytes(length);

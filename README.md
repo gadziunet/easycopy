@@ -235,6 +235,11 @@ docker build -t easycopy .
 The `ghcr.io` image is built by GitHub Actions: the `main` branch → `edge` tag,
 tag `v1.2.3` → `1.2.3`, `1.2` and `latest` (amd64 and arm64).
 
+## How this project is made
+
+EasyCopy is developed with the help of Claude (an AI assistant by Anthropic).
+The author reviews and tests every change before it is published.
+
 ## Licence
 
 [GNU AGPL-3.0](LICENSE). You can use, change and distribute EasyCopy, but if you make a changed

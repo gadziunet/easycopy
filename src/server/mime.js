@@ -1,4 +1,4 @@
-// Typy MIME dla plików w kopiach.
+// MIME types for files in copies.
 
 const TYPES = {
   html: 'text/html; charset=utf-8',

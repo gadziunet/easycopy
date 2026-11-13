@@ -1,11 +1,11 @@
-// Deterministyczne mapowanie URL → lokalna ścieżka w kopii.
-// Ten sam URL (i ten sam rodzaj) zawsze daje tę samą ścieżkę, dzięki czemu
-// linki można przepisać od razu, zanim plik docelowy zostanie pobrany.
+// Deterministic mapping of a URL → local path in the copy.
+// The same URL (and the same kind) always gives the same path, so
+// links can be rewritten right away, before the target file is downloaded.
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-/** Rozszerzenia, które traktujemy jako „stronę” (zapisywaną jako .html). */
+/** Extensions we treat as a "page" (saved as .html). */
 const PAGE_EXTENSIONS = new Set([
   '', 'html', 'htm', 'xhtml', 'shtml', 'php', 'php3', 'php5', 'asp', 'aspx', 'jsp', 'jspx', 'cfm', 'cgi', 'pl',
 ]);
@@ -17,7 +17,7 @@ export function hash8(text) {
   return createHash('sha1').update(text).digest('hex').slice(0, 8);
 }
 
-/** Usuwa fragment (#...) i normalizuje URL. Zwraca null dla nieobsługiwanych adresów. */
+/** Removes the fragment (#...) and normalizes the URL. Returns null for unsupported addresses. */
 export function normalizeUrl(input, base) {
   let u;
   try {
@@ -30,24 +30,24 @@ export function normalizeUrl(input, base) {
   return u.href;
 }
 
-/** Host bez prefiksu „www.” – baza do porównań w obrębie witryny. */
+/** Host without the "www." prefix – the base for comparisons within the site. */
 export function baseHost(hostname) {
   return hostname.toLowerCase().replace(/^www\./, '');
 }
 
-/** Opis witryny, z której robimy kopię. */
+/** Description of the site being copied. */
 export function createSite(startUrl, { subdomains = false } = {}) {
   const u = new URL(startUrl);
   return { startUrl: u.href, origin: u.origin, base: baseHost(u.hostname), subdomains };
 }
 
-/** Czy host jest „główny” (jego pliki lądują w katalogu głównym kopii)? */
+/** Is the host a "main" host (its files go to the root directory of the copy)? */
 export function isPrimaryHost(hostname, site) {
   const h = hostname.toLowerCase();
   return h === site.base || h === `www.${site.base}`;
 }
 
-/** Czy strona pod tym adresem należy do archiwizowanej witryny (może być pobierana jako strona)? */
+/** Does the page at this address belong to the archived site (can it be downloaded as a page)? */
 export function isInScope(url, site) {
   let u;
   try {
@@ -68,10 +68,10 @@ function safeDecode(text) {
   }
 }
 
-/** Zamienia dowolny fragment ścieżki na bezpieczną nazwę pliku/katalogu. */
+/** Turns any path fragment into a safe file/directory name. */
 export function sanitizeSegment(segment) {
   let s = safeDecode(segment)
-    // znaki niedozwolone w Windows/macOS/Linux + znaki sterujące
+    // characters not allowed on Windows/macOS/Linux + control characters
     .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '-')
     .trim();
   if (s === '' || s === '.' || s === '..') s = '_';
@@ -85,7 +85,7 @@ function splitExt(name) {
   return { stem: name.slice(0, dot), ext: name.slice(dot + 1).toLowerCase() };
 }
 
-/** „?page=2&sort=asc” → „_page-2_sort-asc” (długie zapytania zamieniane na skrót). */
+/** "?page=2&sort=asc" → "_page-2_sort-asc" (long queries are replaced with a hash). */
 function querySuffix(search) {
   const q = search.replace(/^\?/, '');
   if (!q) return '';
@@ -98,12 +98,12 @@ function querySuffix(search) {
 }
 
 /**
- * Lokalna ścieżka (POSIX, względna wobec katalogu kopii) dla adresu.
+ * Local path (POSIX, relative to the copy directory) for an address.
  * kind: 'page' | 'css' | 'js' | 'asset'
  *
  *   https://example.com/              → index.html
- *   https://example.com/o-nas/        → o-nas/index.html
- *   https://example.com/o-nas         → o-nas/index.html
+ *   https://example.com/about/        → about/index.html
+ *   https://example.com/about         → about/index.html
  *   https://example.com/blog?page=2   → blog/index_page-2.html
  *   https://cdn.example.net/x.css     → _ext/cdn.example.net/x.css
  */
@@ -113,7 +113,7 @@ export function urlToLocalPath(url, kind, site) {
     ? []
     : ['_ext', sanitizeSegment(u.port ? `${u.hostname}_${u.port}` : u.hostname)];
 
-  const rawSegments = u.pathname.split('/').slice(1); // pierwszy element to '' przed '/'
+  const rawSegments = u.pathname.split('/').slice(1); // the first element is '' before '/'
   const last = rawSegments.pop() ?? '';
   const dirs = rawSegments.filter((s) => s !== '').map(sanitizeSegment);
   const lastName = last === '' ? '' : sanitizeSegment(last);
@@ -123,10 +123,10 @@ export function urlToLocalPath(url, kind, site) {
   let parts;
   if (kind === 'page' && PAGE_EXTENSIONS.has(ext)) {
     if (lastName === '' || ext === '') {
-      // /o-nas, /o-nas/ → o-nas/index.html
+      // /about, /about/ → about/index.html
       parts = [...dirs, ...(lastName ? [lastName] : []), `index${q}.html`];
     } else {
-      // /kontakt.php → kontakt.html, /o-nas.html → o-nas.html
+      // /contact.php → contact.html, /about.html → about.html
       parts = [...dirs, `${stem}${q}.html`];
     }
   } else {
@@ -135,10 +135,10 @@ export function urlToLocalPath(url, kind, site) {
     if (lastName === '') {
       fileName = `index${q}.${forcedExt ?? 'bin'}`;
     } else if (forcedExt && ext !== forcedExt) {
-      // np. fonts.googleapis.com/css2?family=... → css2_family-....css
+      // e.g. fonts.googleapis.com/css2?family=... → css2_family-....css
       fileName = `${lastName}${q}.${forcedExt}`;
     } else if (ext === '') {
-      // plik bez rozszerzenia – dopisujemy .bin, żeby nie kolidował z katalogiem o tej samej nazwie
+      // file without an extension – we add .bin so it does not collide with a directory of the same name
       fileName = `${lastName}${q}.bin`;
     } else {
       fileName = `${stem}${q}.${ext}`;
@@ -148,7 +148,7 @@ export function urlToLocalPath(url, kind, site) {
   return [...prefix, ...parts].join('/');
 }
 
-/** Link względny z pliku `fromPath` do pliku `toPath` (oba w formacie POSIX), z kodowaniem znaków. */
+/** Relative link from file `fromPath` to file `toPath` (both POSIX), with character encoding. */
 export function relativeLink(fromPath, toPath) {
   const rel = path.posix.relative(path.posix.dirname(fromPath), toPath) || path.posix.basename(toPath);
   return rel
@@ -157,8 +157,8 @@ export function relativeLink(fromPath, toPath) {
     .join('/');
 }
 
-/** Koduje fragment ścieżki, zostawiając czytelne znaki dozwolone w URL (np. @ w logo@2x.png). */
+/** Encodes a path fragment, keeping readable characters allowed in URLs (e.g. @ in logo@2x.png). */
 function encodeSegment(seg) {
-  // „:” i „,” zostają zakodowane: „:” mógłby udawać schemat (a:b.png), „,” rozdziela srcset
+  // ":" and "," stay encoded: ":" could look like a scheme (a:b.png), "," separates srcset entries
   return encodeURIComponent(seg).replace(/%(40|21|24|27|28|29|2A|2B|3B|3D)/gi, (m) => decodeURIComponent(m));
 }

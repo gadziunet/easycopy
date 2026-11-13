@@ -1,4 +1,4 @@
-// Publiczne API workera – z niego później skorzysta panel.
+// Public worker API – used by the panel.
 export { Crawler, DEFAULTS } from './worker/crawler.js';
 export { archiveSite, createVersionDir, updateLatest } from './worker/archive.js';
 export { PRESETS, buildUserAgent, parseSize, formatSize, slugify } from './worker/settings.js';

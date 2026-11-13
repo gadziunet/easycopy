@@ -1,15 +1,15 @@
-// Presety tempa, User-Agent i pomocnicze parsowanie ustawień.
+// Rate presets, User-Agent and helpers for parsing settings.
 
 import { readFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
 export const VERSION = pkg.version;
 
-// Adres repozytorium – trafia do User-Agenta i do linku „Kod źródłowy” (wymóg AGPL).
-// Fork może podać własny adres w zmiennej EASYCOPY_PROJECT_URL.
+// Repository address – used in the User-Agent and in the "Source code" link (AGPL requirement).
+// A fork can set its own address in the EASYCOPY_PROJECT_URL variable.
 export const PROJECT_URL = process.env.EASYCOPY_PROJECT_URL || 'https://github.com/gadziunet/easycopy';
 
-/** rps – zapytania na sekundę do jednego hosta, concurrency – równoległe pobrania. */
+/** rps – requests per second to one host, concurrency – parallel downloads. */
 export const PRESETS = {
   delikatny: { label: 'Delikatny', rps: 0.5, concurrency: 1 },
   normalny: { label: 'Normalny', rps: 2, concurrency: 2 },
@@ -36,7 +36,7 @@ const OS_TOKENS = {
 export const BROWSERS = ['easycopy', 'chrome', 'firefox', 'safari', 'edge'];
 export const SYSTEMS = Object.keys(OS_TOKENS);
 
-/** Buduje nagłówek User-Agent. Domyślnie uczciwy identyfikator EasyCopy. */
+/** Builds the User-Agent header. By default an honest EasyCopy identifier. */
 export function buildUserAgent({ browser = 'easycopy', os = 'win', custom } = {}) {
   if (custom) return custom;
   const osToken = OS_TOKENS[os];
@@ -59,7 +59,7 @@ export function buildUserAgent({ browser = 'easycopy', os = 'win', custom } = {}
   }
 }
 
-/** „2GB”, „500 MB”, „1.5g”, „0” → liczba bajtów (0 = bez limitu). */
+/** "2GB", "500 MB", "1.5g", "0" → number of bytes (0 = no limit). */
 export function parseSize(text) {
   if (text == null || text === '') return 0;
   if (typeof text === 'number') return text;
@@ -82,13 +82,13 @@ export function formatSize(bytes) {
   return `${v.toFixed(v >= 10 ? 0 : 1).replace(/\.0$/, '').replace('.', ',')} ${units[i]}`;
 }
 
-/** Wzorzec typu „/koszyk/*” → RegExp dopasowujący ścieżkę (pathname + search). */
+/** Pattern like "/cart/*" → RegExp matching the path (pathname + search). */
 export function globToRegex(glob) {
   const escaped = glob.trim().replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}`);
 }
 
-/** Nazwa archiwum z tekstu: „Strona główna” → „strona-glowna”. */
+/** Archive name from text, e.g. "Strona główna" → "strona-glowna" (diacritics removed). */
 export function slugify(text) {
   const map = { ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z' };
   return (

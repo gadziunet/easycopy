@@ -1,7 +1,7 @@
-// Zmiana użytkownika w kontenerze Docker (PUID/PGID, jak w obrazach dla Unraid).
-// Gdy proces startuje jako root, a ustawiono PUID, zakładamy katalogi danych,
-// nadajemy im właściciela i przechodzimy na zwykłego użytkownika – archiwa
-// nie powstają jako pliki roota, także przy „docker compose exec”.
+// Switching the user in a Docker container (PUID/PGID, as in images for Unraid).
+// When the process starts as root and PUID is set, we create the data directories,
+// set their owner and switch to a regular user – archives
+// are not created as root-owned files, also with "docker compose exec".
 
 import { mkdirSync, statSync, chownSync } from 'node:fs';
 import path from 'node:path';
@@ -18,7 +18,7 @@ export function dropPrivilegesIfNeeded(env = process.env) {
 
   const uid = parseId(env.PUID, 'PUID');
   const gid = parseId(env.PGID ?? env.PUID, 'PGID');
-  if (uid === 0) return null; // świadomie uruchomione jako root
+  if (uid === 0) return null; // deliberately run as root
 
   const dirs = new Set();
   if (env.ARCHIVE_DIR) {
@@ -31,7 +31,7 @@ export function dropPrivilegesIfNeeded(env = process.env) {
   for (const dir of dirs) {
     mkdirSync(dir, { recursive: true });
     const st = statSync(dir);
-    // tylko katalogi główne i tylko gdy trzeba – bez przechodzenia całego archiwum
+    // only the top-level directories and only when needed – without walking the whole archive
     if (st.uid !== uid || st.gid !== gid) chownSync(dir, uid, gid);
   }
 

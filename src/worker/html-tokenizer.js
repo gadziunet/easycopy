@@ -1,6 +1,6 @@
-// Lekki tokenizer HTML, który pozwala zmieniać atrybuty znaczników bez
-// przebudowywania całego dokumentu. Wszystko, czego nie zmieniamy, zostaje
-// bajt w bajt takie samo jak w oryginale.
+// Lightweight HTML tokenizer that lets us change tag attributes without
+// rebuilding the whole document. Everything we do not change stays
+// byte-for-byte the same as in the original.
 
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'plaintext']);
 
@@ -8,7 +8,7 @@ const NAMED_ENTITIES = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
 };
 
-/** Dekoduje encje HTML w wartości atrybutu (wystarczająco dla adresów URL). */
+/** Decodes HTML entities in an attribute value (good enough for URLs). */
 export function decodeEntities(text) {
   if (!text.includes('&')) return text;
   return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);?/gi, (match, body) => {
@@ -35,8 +35,8 @@ function isWs(ch) {
 }
 
 /**
- * Parsuje znacznik otwierający zaczynający się na pozycji `start` (znak '<').
- * Zwraca { name, attrs, end, closeStart, selfClosing } albo null.
+ * Parses the opening tag starting at position `start` (the '<' character).
+ * Returns { name, attrs, end, closeStart, selfClosing } or null.
  */
 function parseStartTag(html, start) {
   let i = start + 1;
@@ -57,7 +57,7 @@ function parseStartTag(html, start) {
       selfClosing = true;
       return { name, attrs, end: i + 2, closeStart: i, selfClosing };
     }
-    // nazwa atrybutu
+    // attribute name
     const attrStart = i;
     while (i < html.length && !isWs(html[i]) && html[i] !== '>' && !(html[i] === '/' && html[i + 1] === '>') && (html[i] !== '=' || i === attrStart)) i++;
     const attrName = html.slice(attrStart, i).toLowerCase();
@@ -96,7 +96,7 @@ function parseStartTag(html, start) {
   return { name, attrs, end: html.length, closeStart: html.length, selfClosing };
 }
 
-/** Szuka zamknięcia elementu raw-text (np. </script>) bez rozróżniania wielkości liter. */
+/** Finds the end of a raw-text element (e.g. </script>), case-insensitive. */
 function findRawTextEnd(html, from, name) {
   const lower = html.toLowerCase();
   const needle = `</${name}`;
@@ -110,17 +110,17 @@ function findRawTextEnd(html, from, name) {
 }
 
 /**
- * Przechodzi przez dokument i wywołuje `visitor` dla każdego znacznika otwierającego
- * oraz dla zawartości <style>. Visitor zmienia znacznik przez API obiektu `tag`.
+ * Walks through the document and calls `visitor` for every opening tag
+ * and for the content of <style>. The visitor changes the tag through the `tag` object API.
  *
  * visitor.tag(tag)          – tag.name, tag.get(n), tag.has(n), tag.attrs,
  *                              tag.set(n, v), tag.remove(n), tag.add(n, v),
- *                              tag.drop() (usuwa cały znacznik), tag.after(html)
- * visitor.styleText(css)    – zwraca nową zawartość elementu <style>
+ *                              tag.drop() (removes the whole tag), tag.after(html)
+ * visitor.styleText(css)    – returns the new content of the <style> element
  */
 export function rewriteHtml(html, visitor) {
   const out = [];
-  let pos = 0; // początek fragmentu, którego jeszcze nie skopiowaliśmy
+  let pos = 0; // start of the fragment we have not copied yet
   let i = 0;
 
   while (i < html.length) {
@@ -153,7 +153,7 @@ export function rewriteHtml(html, visitor) {
     const tagStart = i;
     i = parsed.end;
 
-    const edits = []; // { start, end, text } – w obrębie oryginalnego znacznika
+    const edits = []; // { start, end, text } – within the original tag
     let dropped = false;
     let afterText = '';
     const inserts = [];
@@ -202,7 +202,7 @@ export function rewriteHtml(html, visitor) {
       if (!dropped) {
         let tagText = html.slice(tagStart, parsed.end);
         const closeRel = parsed.closeStart - tagStart;
-        // wstawki przed zamknięciem znacznika, edycje od końca, żeby nie przesuwać pozycji
+        // insertions before the tag end, edits from the end so positions do not shift
         if (inserts.length) tagText = tagText.slice(0, closeRel) + inserts.join('') + tagText.slice(closeRel);
         edits.sort((a, b) => b.start - a.start);
         for (const e of edits) {
@@ -235,7 +235,7 @@ export function rewriteHtml(html, visitor) {
   return out.join('');
 }
 
-/** Parsuje atrybut srcset na listę { url, descriptor }. */
+/** Parses the srcset attribute into a list of { url, descriptor }. */
 export function parseSrcset(value) {
   const result = [];
   let i = 0;

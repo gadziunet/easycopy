@@ -1,4 +1,4 @@
-/* EasyCopy – panel. Spokojny, monochromatyczny wygląd zgodny z makietą. */
+/* EasyCopy – panel. Calm, monochrome look matching the mockup. */
 :root {
   color-scheme: light dark;
   --bg: #f6f6f5; --card: #ffffff; --text: #1a1a1a; --muted: #555553; --line: #e4e4e2; --line-strong: #c9c9c6;
@@ -22,13 +22,13 @@ p { margin: 0; }
 
 .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 .narrow { width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
-.narrow.wide { max-width: none; } /* formularz „Nowa kopia” – pełna szerokość strony */
+.narrow.wide { max-width: none; } /* "New copy" form – full page width */
 main.wrap { padding-top: 32px; padding-bottom: 48px; display: flex; flex-direction: column; gap: 24px; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .min0 { min-width: 0; }
 .grow { flex: 1 1 320px; min-width: 0; }
 
-/* nagłówek */
+/* header */
 header.top { background: var(--card); border-bottom: 1px solid var(--line); }
 .bar { min-height: 64px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; padding-top: 8px; padding-bottom: 8px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 17px; color: var(--text); }
@@ -38,7 +38,7 @@ nav a:hover { color: var(--text); }
 nav a.active { background: var(--soft); color: var(--text); font-weight: 600; }
 .bar-actions { display: flex; align-items: center; gap: 12px; }
 
-/* przyciski */
+/* buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 14px;
   border: 1px solid var(--line-strong); border-radius: 8px; background: var(--card); color: var(--text);
   font: inherit; font-weight: 500; text-decoration: none; cursor: pointer; white-space: nowrap; }
@@ -56,7 +56,7 @@ input[type=time] { min-height: 44px; padding: 0 12px; border: 1px solid var(--li
 form.inline { display: inline; margin: 0; }
 :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
-/* karty, tabele */
+/* cards, tables */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
 .pad { padding: 20px 24px; }
 .scroll { overflow-x: auto; }
@@ -92,13 +92,13 @@ main .notice { margin-top: 0; }
 .dot.ring { border: 2px solid var(--text); }
 .dot.dashed { border: 2px dashed var(--muted); }
 
-/* postęp */
+/* progress */
 progress { width: 100%; height: 8px; appearance: none; -webkit-appearance: none; border: 0; border-radius: 4px; background: var(--track); overflow: hidden; }
 progress::-webkit-progress-bar { background: var(--track); border-radius: 4px; }
 progress::-webkit-progress-value { background: var(--text); border-radius: 4px; transition: width .4s; }
 progress::-moz-progress-bar { background: var(--text); border-radius: 4px; }
 
-/* W toku */
+/* In progress */
 [data-poll="active"] h2 { margin-bottom: 4px; }
 .job-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 0; border-top: 1px solid var(--line); }
 .job-row:first-of-type { border-top: 0; }
@@ -110,7 +110,7 @@ details summary { cursor: pointer; }
 td details { margin-top: 4px; font-size: 13px; color: var(--muted); }
 ul.plain { list-style: none; margin: 6px 0 0; padding: 0; }
 
-/* formularz */
+/* form */
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-weight: 600; font-size: 14px; }
 input[type=text], input[type=url], input[type=number], input[type=password], select {
@@ -139,7 +139,7 @@ fieldset { margin: 0; padding: 16px; border: 1px solid var(--line); border-radiu
 legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
 
-/* szczegóły zadania */
+/* job details */
 .split { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
 .main-col { flex: 999 1 560px; min-width: 0; }
 .side-col { flex: 1 1 300px; min-width: 0; }
@@ -167,7 +167,7 @@ legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
 .log-msg { overflow-wrap: anywhere; }
 .log-empty { padding: 16px 24px; }
 
-/* instalacja, logowanie */
+/* setup, sign-in */
 body.center { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .login { width: 100%; max-width: 420px; }
 .login h1 { font-size: 24px; }

@@ -1,17 +1,17 @@
-// Przepisywanie adresów w pobranej stronie HTML.
-// Decyzje „co z tym linkiem zrobić” podejmuje crawler (ctx.planPage / ctx.planResource),
-// tutaj tylko rozpoznajemy, gdzie w HTML są adresy i jakiego są rodzaju.
+// Rewriting addresses in a downloaded HTML page.
+// Decisions on "what to do with this link" are made by the crawler (ctx.planPage / ctx.planResource),
+// here we only detect where the addresses are in the HTML and what kind they are.
 
 import { rewriteHtml, parseSrcset, serializeSrcset } from './html-tokenizer.js';
 import { rewriteCss } from './css-rewriter.js';
 
 const SKIP_SCHEME = /^\s*(#|javascript:|mailto:|tel:|sms:|data:|blob:|about:|file:)/i;
 
-/** Atrybuty z adresem zasobu (obrazek, wideo itd.) – dla dowolnego elementu. */
+/** Attributes with a resource address (image, video, etc.) – for any element. */
 const LAZY_ATTRS = ['data-src', 'data-lazy-src', 'data-original', 'data-bg', 'data-background', 'data-background-image'];
 const LAZY_SRCSET_ATTRS = ['data-srcset', 'data-lazy-srcset'];
 
-/** Atrybuty z adresem zasobu zależnie od elementu. */
+/** Attributes with a resource address, depending on the element. */
 const RESOURCE_ATTRS = {
   img: ['src'],
   source: ['src'],
@@ -45,7 +45,7 @@ function linkRelKind(rel, as) {
   if (tokens.some((t) => t === 'icon' || t === 'apple-touch-icon' || t === 'apple-touch-icon-precomposed' || t === 'mask-icon')) {
     return 'asset';
   }
-  return null; // canonical, alternate, manifest itd. – zostawiamy jako adres absolutny
+  return null; // canonical, alternate, manifest etc. – kept as an absolute address
 }
 
 function splitHash(value) {
@@ -55,11 +55,11 @@ function splitHash(value) {
 
 /**
  * ctx:
- *   baseUrl                          – adres strony (po przekierowaniach)
- *   planPage(absUrl)                 – link nawigacyjny → href (lokalny, _brak.html…) albo null = zostaw absolutny
- *   planResource(absUrl, kind)       – zasób → href lokalny albo null = zostaw absolutny
- *   isExternal(absUrl)               – czy adres spoza archiwizowanej witryny
- *   externalNewTab                   – dodawaj target="_blank" do linków zewnętrznych
+ *   baseUrl                          – page address (after redirects)
+ *   planPage(absUrl)                 – navigation link → href (local, _brak.html…) or null = keep absolute
+ *   planResource(absUrl, kind)       – resource → local href or null = keep absolute
+ *   isExternal(absUrl)               – whether the address is outside the archived site
+ *   externalNewTab                   – add target="_blank" to external links
  */
 export function rewritePage(html, ctx) {
   let baseUrl = ctx.baseUrl;
@@ -86,7 +86,7 @@ export function rewritePage(html, ctx) {
     u.hash = '';
     const href = ctx.planPage(u.href);
     if (href == null) return u.href + hash;
-    // _brak.html#… ma już własny fragment – nie doklejamy kotwicy
+    // _brak.html#… already has its own fragment – we do not append the anchor
     return href.includes('#') ? href : href + hash;
   };
 
@@ -146,7 +146,7 @@ export function rewritePage(html, ctx) {
         } else if (httpEquiv === 'content-type') {
           tag.set('content', 'text/html; charset=utf-8');
         } else if (httpEquiv === 'content-security-policy') {
-          tag.drop(); // CSP oryginału blokowałby lokalne pliki
+          tag.drop(); // the original CSP would block local files
         } else if (httpEquiv === 'refresh') {
           const content = tag.get('content') || '';
           const m = /^(\s*[\d.]+\s*[;,]?\s*(?:url\s*=\s*)?)(['"]?)(.*?)\2\s*$/i.exec(content);
@@ -171,7 +171,7 @@ export function rewritePage(html, ctx) {
         }
       } else if (name === 'form') {
         const u = resolve(tag.get('action'));
-        if (u) setIf(tag, 'action', u.href); // formularze i tak nie działają offline
+        if (u) setIf(tag, 'action', u.href); // forms do not work offline anyway
       } else if (name === 'link') {
         const kind = linkRelKind(tag.get('rel'), tag.get('as'));
         const href = tag.get('href');
@@ -231,7 +231,7 @@ export function rewritePage(html, ctx) {
   });
 
   if (!charsetInserted) {
-    // brak <head> – wstawiamy deklarację na początku (po doctype, jeśli jest)
+    // no <head> – we insert the declaration at the start (after the doctype, if present)
     const m = /^\s*<!doctype[^>]*>/i.exec(result);
     if (m) return `${m[0]}<meta charset="utf-8">${result.slice(m[0].length)}`;
     return `<meta charset="utf-8">${result}`;

@@ -149,7 +149,7 @@ async function withPanel(fn, { dbFile = ':memory:', archiveRoot = path.join(tmp,
   }
 }
 
-/** Zakłada konto w kreatorze i zwraca ciasteczko sesji. */
+/** Creates an account in the setup wizard and returns the session cookie. */
 async function setup(port, form, username = 'admin', password = 'tajne-haslo') {
   const res = await request(port, 'POST', '/instalacja', form({ username, password, repeat: password }));
   assert.equal(res.status, 303);
@@ -158,7 +158,7 @@ async function setup(port, form, username = 'admin', password = 'tajne-haslo') {
 
 test('kreator instalacji: pierwsze konto, tylko raz', async () => {
   await withPanel(async ({ port, db, form }) => {
-    // pusta baza → wszystko prowadzi do kreatora
+    // empty database → everything leads to the setup wizard
     const home = await request(port, 'GET', '/');
     assert.equal(home.status, 303);
     assert.equal(home.headers.location, '/instalacja');
@@ -169,14 +169,14 @@ test('kreator instalacji: pierwsze konto, tylko raz', async () => {
     assert.equal(page.status, 200);
     assert.ok(page.body.includes('Utwórz konto administratora'));
 
-    // walidacja
+    // validation
     const short = await request(port, 'POST', '/instalacja', form({ username: 'ad', password: 'krotkie', repeat: 'inne' }));
     assert.equal(short.status, 422);
     assert.ok(short.body.includes('Login: 3–32 znaki'));
     assert.ok(short.body.includes('co najmniej 8 znaków'));
     const mismatch = await request(port, 'POST', '/instalacja', form({ username: 'admin', password: 'tajne-haslo', repeat: 'inne-haslo' }));
     assert.ok(mismatch.body.includes('Hasła nie są takie same'));
-    // z obcej strony
+    // from another site
     assert.equal((await request(port, 'POST', '/instalacja', form({ username: 'zly', password: 'tajne-haslo', repeat: 'tajne-haslo' }, { origin: 'https://zla-strona.example' }))).status, 403);
     assert.equal(db.countUsers(), 0);
 
@@ -187,7 +187,7 @@ test('kreator instalacji: pierwsze konto, tylko raz', async () => {
     assert.match(user.password_hash, /^scrypt\$/, 'hasło zapisane jako skrót scrypt');
     assert.ok(!user.password_hash.includes('tajne-haslo'));
 
-    // kreator nie działa drugi raz
+    // the setup wizard does not work a second time
     assert.equal((await request(port, 'GET', '/instalacja')).headers.location, '/');
     const again = await request(port, 'POST', '/instalacja', form({ username: 'intruz', password: 'tajne-haslo', repeat: 'tajne-haslo' }));
     assert.equal(again.status, 303);
@@ -218,11 +218,11 @@ test('logowanie, wylogowanie i zmiana hasła', async () => {
     assert.equal((await request(port, 'GET', '/', { headers: { cookie: second } })).status, 200);
     assert.equal((await request(port, 'GET', '/', { headers: { cookie: 'ec_session=1.9999999999.podrobione' } })).status, 303);
 
-    // zmiana hasła: złe obecne hasło
+    // password change: wrong current password
     const wrong = await request(port, 'POST', '/konto', { ...form({ current: 'zle', password: 'nowe-haslo-123', repeat: 'nowe-haslo-123' }, { cookie: second }) });
     assert.equal(wrong.status, 422);
     assert.ok(wrong.body.includes('Obecne hasło jest nieprawidłowe'));
-    // poprawnie – inne sesje wygasają, ta dostaje nowe ciasteczko
+    // correct – other sessions expire, this one gets a new cookie
     const changed = await request(port, 'POST', '/konto', form({ current: 'tajne-haslo', password: 'nowe-haslo-123', repeat: 'nowe-haslo-123' }, { cookie: second }));
     assert.equal(changed.status, 303);
     const third = cookieOf(changed);
@@ -329,7 +329,7 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
   await writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ startUrl: 'https://www.example.com/', createdAt: '2026-11-04T10:00:00Z', status: 'complete', stats: { pages: 2, bytes: 100 } }));
 
   await withPanel(async ({ port, form }) => {
-    // archiwa działają bez konta w panelu i nawet przed instalacją
+    // archives work without a panel account and even before setup
     const arch = await request(port, 'GET', '/a/strona/');
     assert.equal(arch.status, 200);
     assert.ok(arch.body.includes('kopia'));
@@ -337,7 +337,7 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
     assert.equal((await request(port, 'GET', '/a/strona')).status, 301);
     assert.equal((await request(port, 'GET', '/a/strona/o-nas/')).status, 200);
     assert.equal((await request(port, 'GET', '/a/strona/%2e%2e/%2e%2e/')).status !== 200, true);
-    // panel nadal wymaga instalacji/logowania
+    // the panel still requires setup/sign-in
     assert.equal((await request(port, 'GET', '/')).headers.location, '/instalacja');
 
     const cookie = await setup(port, form);
@@ -346,7 +346,7 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
     assert.ok(home.body.includes('pod tym samym adresem co panel'));
   }, { archiveRoot, archivePort: 0 });
 
-  // z hasłem do archiwów
+  // with an archive password
   await withPanel(async ({ port }) => {
     assert.equal((await request(port, 'GET', '/a/strona/')).status, 401);
     const auth = `Basic ${Buffer.from('x:haslo-archiwow').toString('base64')}`;
@@ -355,7 +355,7 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
 });
 
 test('harmonogram: następny termin i zakładanie zadań', () => {
-  const from = new Date(2026, 10, 4, 15, 0).getTime(); // środa 4.11, 15:00
+  const from = new Date(2026, 10, 4, 15, 0).getTime(); // Wednesday 4.11, 15:00
   const at = (ms) => { const d = new Date(ms); return [d.getDate(), d.getHours(), d.getMinutes()]; };
   assert.deepEqual(at(computeNextRun({ frequency: 'daily', time: '03:00' }, from)), [5, 3, 0]);
   assert.deepEqual(at(computeNextRun({ frequency: 'daily', time: '16:30' }, from)), [4, 16, 30]);
@@ -376,12 +376,12 @@ test('harmonogram: następny termin i zakładanie zadań', () => {
   assert.ok(db.getSchedule(s.id).nextRunAt > from, 'następny termin przesunięty');
   assert.equal(db.getSchedule(s.id).lastJobId, job.id);
 
-  // poprzednia kopia trwa → termin pominięty, bez dokładania zadań
+  // previous copy is still running → run skipped, no extra jobs added
   db.markScheduleRun(s.id, { nextRunAt: from });
   assert.deepEqual(schedulerTick(db, from + 1), []);
   assert.equal(db.listJobs().length, 1);
 
-  // wstrzymany harmonogram nic nie robi
+  // a paused schedule does nothing
   db.setScheduleEnabled(s.id, false, null);
   db.requestCancel(job.id);
   const later = schedulerTick(db, from + 10 * 86_400_000);
@@ -417,7 +417,7 @@ test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
     const post = (p, data = {}) => request(port, 'POST', p, form(data, { cookie }));
     const base = { url: 'https://www.example.com/', name: 'strona', preset: 'normalny', depth: '1', maxPages: '10', maxSize: '0', sameDomain: 'on', respectRobots: 'on', ua: 'easycopy', os: 'win' };
 
-    // nowa kopia z harmonogramem
+    // new copy with a schedule
     const created = await post('/nowa', { ...base, repeat: 'weekly', weekday: '1', time: '03:00' });
     assert.equal(created.status, 303);
     const sched = db.getScheduleByName('strona');
@@ -427,7 +427,7 @@ test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
     assert.ok((await get('/harmonogram')).body.includes('Co tydzień, pon. 03:00'));
     assert.ok((await get('/')).body.includes('↻ Co tydzień'));
 
-    // edycja harmonogramu – nazwy nie da się zmienić
+    // editing a schedule – the name cannot be changed
     const edited = await post(`/harmonogram/${sched.id}/edytuj`, { ...base, name: 'inna-nazwa', preset: 'delikatny', repeat: 'daily', time: '04:30' });
     assert.equal(edited.status, 303);
     assert.equal(db.getSchedule(sched.id).name, 'strona');
@@ -438,20 +438,20 @@ test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
     await post(`/harmonogram/${sched.id}/wznow`);
     assert.equal(db.getSchedule(sched.id).enabled, true);
 
-    // poprawa ustawień zadania w kolejce
+    // updating the settings of a queued job
     assert.equal((await get('/zadania/1/edytuj')).status, 200);
     const fixed = await post('/zadania/1/edytuj', { ...base, preset: 'szybki', depth: '2' });
     assert.equal(fixed.status, 303);
     assert.equal(db.getJob(1).options.preset, 'szybki');
     assert.equal(db.getJob(1).options.maxDepth, 2);
 
-    // zadanie w toku blokuje usuwanie archiwum
+    // a running job blocks deleting the archive
     const blocked = await post('/archiwa/strona/usun');
     assert.equal(blocked.status, 409);
     assert.ok(existsSync(path.join(archiveRoot, 'strona')));
     assert.equal((await post('/zadania/1/usun')).status, 409, 'aktywnego zadania nie usuwamy z historii');
 
-    // zatrzymanie (z kolejki) i usunięcie z historii
+    // stopping (from the queue) and deleting from the history
     await post('/zadania/1/anuluj');
     assert.equal(db.getJob(1).status, 'cancelled');
     assert.ok((await get('/zadania/1')).body.includes('Zatrzymane'));
@@ -459,14 +459,14 @@ test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
     assert.equal(delJob.headers.location, '/zadania');
     assert.equal(db.getJob(1), null);
 
-    // usunięcie wersji – latest przechodzi na poprzednią
+    // deleting a version – latest moves to the previous one
     await post('/archiwa/strona/2026-11-04/usun');
     assert.ok(!existsSync(path.join(archiveRoot, 'strona', '2026-11-04')));
     const { readlinkSync } = await import('node:fs');
     assert.equal(readlinkSync(path.join(archiveRoot, 'strona', 'latest')), '2026-11-03');
     assert.equal((await post('/archiwa/..%2Fx/usun')).status, 404);
 
-    // usunięcie całego archiwum razem z harmonogramem
+    // deleting the whole archive together with its schedule
     const leftover = db.createJob({ url: base.url, name: 'strona' });
     db.requestCancel(leftover);
     const del = await post('/archiwa/strona/usun');

@@ -1,4 +1,4 @@
-// Crawler: pobiera witrynę do katalogu, przepisując linki w trakcie pobierania.
+// Crawler: downloads a site to a directory, rewriting links while downloading.
 
 import { EventEmitter } from 'node:events';
 import { mkdir, writeFile, access } from 'node:fs/promises';
@@ -12,6 +12,7 @@ import { rewritePage } from './page-rewriter.js';
 import { rewriteCss, cssCharset } from './css-rewriter.js';
 import { charsetFromContentType, charsetFromHtmlBytes, decodeText } from './charset.js';
 import { detectBlock } from './blocking.js';
+import { describeNetworkError } from './net-error.js';
 import { Robots, ALLOW_ALL } from './robots.js';
 import { MISSING_PAGE, missingHref, missingPageHtml, redirectHtml } from './special-pages.js';
 import { VERSION, buildUserAgent, getPreset, globToRegex } from './settings.js';
@@ -62,14 +63,14 @@ export const DEFAULTS = {
   preset: 'normalny',
   maxDepth: 3,
   maxPages: 500,
-  maxBytes: 0, // 0 = bez limitu
+  maxBytes: 0, // 0 = no limit
   maxFileBytes: 200 * 1024 ** 2,
   subdomains: false,
   skipExtensions: [],
   exclude: [],
   respectRobots: true,
   externalNewTab: false,
-  allowJavaScript: false, // zapisywane w manifeście – używa go serwer archiwów
+  allowJavaScript: false, // stored in the manifest – used by the archive server
   browser: 'easycopy',
   os: 'win',
   userAgent: null,
@@ -78,15 +79,15 @@ export const DEFAULTS = {
   timeoutMs: 30_000,
   retries: 2,
   retryDelayMs: 2_000,
-  maxBlocks: 3, // tyle kolejnych blokad z rzędu → pauza
+  maxBlocks: 3, // this many blocks in a row → pause
   blockBaseDelayMs: 30_000,
-  slowDownIntervalMs: 2_000, // po blokadzie: najwyżej 1 zapytanie na 2 s (jak preset „delikatny”)
+  slowDownIntervalMs: 2_000, // after a block: at most 1 request per 2 s (like the "gentle" preset)
   maxBlockWaitMs: 15 * 60_000,
 };
 
 export class Crawler extends EventEmitter {
   /**
-   * @param {object} options – startUrl, outDir oraz pola z DEFAULTS
+   * @param {object} options – startUrl, outDir and fields from DEFAULTS
    */
   constructor(options) {
     super();
@@ -94,7 +95,7 @@ export class Crawler extends EventEmitter {
     if (!options?.outDir) throw new Error('Missing output directory');
     this.opts = { ...DEFAULTS, ...options };
     this.preset = getPreset(this.opts.preset);
-    // ręczne nadpisanie presetu (ustawienia zaawansowane, testy)
+    // manual preset override (advanced settings, tests)
     if (this.opts.rps > 0) this.preset.rps = this.opts.rps;
     if (this.opts.concurrency > 0) this.preset.concurrency = this.opts.concurrency;
     this.startUrl = normalizeUrl(this.opts.startUrl);
@@ -106,8 +107,8 @@ export class Crawler extends EventEmitter {
     this.skipExt = new Set(this.opts.skipExtensions.map((e) => e.replace(/^\./, '').toLowerCase()).filter(Boolean));
     this.exclude = this.opts.exclude.filter(Boolean).map(globToRegex);
 
-    this.entries = new Map(); // ścieżka lokalna → wpis
-    this.notDownloaded = new Map(); // adres → powód (głębokość, typ, wykluczenie)
+    this.entries = new Map(); // local path → entry
+    this.notDownloaded = new Map(); // address → reason (depth, type, exclusion)
     this.pageQueue = [];
     this.resourceQueue = [];
     this.hosts = new Map();
@@ -120,7 +121,7 @@ export class Crawler extends EventEmitter {
     this.abortController = new AbortController();
   }
 
-  // ---------- planowanie linków ----------
+  // ---------- link planning ----------
 
   pathFor(url, kind) {
     return urlToLocalPath(url, PAGE_KINDS.has(kind) ? 'page' : kind, this.site);
@@ -143,7 +144,7 @@ export class Crawler extends EventEmitter {
     return entry;
   }
 
-  /** Link nawigacyjny ze strony `from`. Zwraca href albo null (link zewnętrzny – zostaje absolutny). */
+  /** Navigation link from page `from`. Returns href or null (external link – stays absolute). */
   planPage(url, from) {
     if (!isInScope(url, this.site)) return null;
     const toMissing = (reason) => {
@@ -164,16 +165,16 @@ export class Crawler extends EventEmitter {
     return relativeLink(from.path, localPath);
   }
 
-  /** Zasób potrzebny do wyświetlenia strony. Zwraca href lokalny albo null (zostaw adres oryginalny). */
+  /** Resource needed to display the page. Returns a local href or null (keep the original address). */
   planResource(url, kind, from) {
     if (this.filterReason(url)) return null;
-    if (kind === 'frame' && !isInScope(url, this.site)) return null; // np. osadzony film z YouTube
+    if (kind === 'frame' && !isInScope(url, this.site)) return null; // e.g. an embedded YouTube video
     const localPath = this.pathFor(url, kind);
     if (!this.entries.has(localPath)) this.enqueue(url, kind, from.depth, localPath, from.url);
     return relativeLink(from.path, localPath);
   }
 
-  // ---------- tempo i robots.txt ----------
+  // ---------- rate and robots.txt ----------
 
   hostState(host) {
     let h = this.hosts.get(host);
@@ -212,7 +213,7 @@ export class Crawler extends EventEmitter {
     return h.robots;
   }
 
-  // ---------- pobieranie ----------
+  // ---------- downloading ----------
 
   async readBody(res) {
     const chunks = [];
@@ -294,7 +295,7 @@ export class Crawler extends EventEmitter {
     if (this.stopReason) {
       return this.markMissing(entry, this.stopReason === 'limit' ? 'limit' : 'pauza');
     }
-    // limit stron liczymy z wyprzedzeniem, bo kilka stron może być pobieranych naraz
+    // the page limit is counted ahead, because several pages can be downloaded at once
     let reserved = false;
     if (entry.kind === 'page' && this.opts.maxPages > 0) {
       if (this.pagesReserved >= this.opts.maxPages) return this.markMissing(entry, 'limit');
@@ -325,7 +326,7 @@ export class Crawler extends EventEmitter {
       if (this.stopReason === 'aborted') return this.markMissing(entry, 'pauza');
       entry.state = 'failed';
       entry.reason = err instanceof TooLargeError ? 'za-duzy' : 'blad';
-      entry.error = err.message;
+      entry.error = err instanceof TooLargeError ? err.message : describeNetworkError(err);
       this.stats.failed++;
       this.emit('failed', entry);
       return;
@@ -352,7 +353,7 @@ export class Crawler extends EventEmitter {
 
     if (isPage) {
       if (!isInScope(finalUrl, this.site)) {
-        // przekierowanie poza witrynę – zostawiamy stronę-przekierowanie do oryginału
+        // redirect outside the site – we keep a redirect page to the original
         await this.writeLocal(entry.path, redirectHtml(finalUrl, 'external', this.opts.language));
         entry.state = 'done';
         entry.redirect = finalUrl;
@@ -371,7 +372,7 @@ export class Crawler extends EventEmitter {
         entry.bytes = Buffer.byteLength(out);
         if (entry.kind === 'page') this.stats.pages++;
       } else {
-        // link do pliku (np. PDF) pod adresem wyglądającym jak strona
+        // link to a file (e.g. PDF) at an address that looks like a page
         let filePath = urlToLocalPath(entry.url, 'asset', this.site);
         const ext = MIME_EXT[mime];
         if (filePath.endsWith('.bin') && ext) filePath = `${filePath.slice(0, -4)}.${ext}`;
@@ -420,21 +421,21 @@ export class Crawler extends EventEmitter {
   }
 
   handleBlock(entry, h, block) {
-    // odpowiedzi na zapytania wysłane, zanim zauważyliśmy blokadę, to ta sama blokada –
-    // przy kilku równoległych pobraniach nie liczymy jej kilka razy
+    // responses to requests sent before we noticed the block are the same block –
+    // with several parallel downloads we do not count it several times
     const sameEpisode = h.lastBlockAt != null && entry.fetchStartedAt < h.lastBlockAt;
     if (!sameEpisode) {
       h.consecutiveBlocks++;
       h.lastBlockAt = performance.now();
     }
-    // zwalniamy dla tego hosta: do tempa „delikatnego”, a przy blokadach z rzędu coraz bardziej
-    // (maksymalnie 1 zapytanie na minutę). Po udanym pobraniu tempo zostaje „delikatne”.
+    // slow down for this host: to the "gentle" rate, and further with each block in a row
+    // (at most 1 request per minute). After a successful download the rate stays "gentle".
     const slowed = this.opts.slowDownIntervalMs * 2 ** (h.consecutiveBlocks - 1);
     h.interval = Math.min(Math.max(h.interval, slowed), 60_000);
     const tooLong = block.retryAfterMs != null && block.retryAfterMs > this.opts.maxBlockWaitMs;
 
     if (h.consecutiveBlocks >= this.opts.maxBlocks || tooLong || block.type === 'challenge') {
-      // strona weryfikacji (Cloudflare) albo powtarzające się blokady → pauza, bez prób obejścia
+      // verification page (Cloudflare) or repeated blocks → pause, no bypass attempts
       if (!this.stopReason) {
         this.stopReason = 'pauza';
         this.pauseInfo = { ...block, host: new URL(entry.url).host, at: new Date().toISOString() };
@@ -447,11 +448,11 @@ export class Crawler extends EventEmitter {
     const wait = block.retryAfterMs ?? this.opts.blockBaseDelayMs * 2 ** (h.consecutiveBlocks - 1);
     h.nextAt = Date.now() + wait;
     this.emit('block', { ...block, host: new URL(entry.url).host, waitMs: wait, url: entry.url });
-    // wraca na początek kolejki – spróbujemy ponownie po odczekaniu
+    // goes back to the front of the queue – we will try again after waiting
     (PAGE_KINDS.has(entry.kind) ? this.pageQueue : this.resourceQueue).unshift(entry);
   }
 
-  // ---------- przebieg ----------
+  // ---------- run ----------
 
   async worker() {
     for (;;) {
@@ -476,7 +477,7 @@ export class Crawler extends EventEmitter {
     }
   }
 
-  /** Przerywa pobieranie (np. Ctrl+C). Kopia zostanie domknięta tym, co już pobrano. */
+  /** Stops downloading (e.g. Ctrl+C). The copy is finalized with what has already been downloaded. */
   abort() {
     if (!this.stopReason || this.stopReason === 'limit') this.stopReason = 'aborted';
     this.abortController.abort();
@@ -494,7 +495,7 @@ export class Crawler extends EventEmitter {
   }
 
   async finalize() {
-    // niepobrane strony z witryny → strony-przekierowania do _brak.html
+    // subpages of the site that were not downloaded → redirect pages to _brak.html
     for (const entry of this.entries.values()) {
       if (entry.state === 'queued') this.markMissing(entry, this.stopReason === 'limit' ? 'limit' : 'pauza');
       if (!PAGE_KINDS.has(entry.kind) || entry.state === 'done') continue;

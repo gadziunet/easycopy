@@ -1,4 +1,4 @@
-// Przepisywanie adresów w CSS: url(...) oraz @import.
+// Rewriting addresses in CSS: url(...) and @import.
 
 const CSS_URL_RE =
   /@import\s+(?:url\(\s*)?(?:"([^"]*)"|'([^']*)'|([^\s;'")]+))\s*\)?|url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]*))\s*\)/gi;
@@ -9,8 +9,8 @@ function skippable(url) {
 }
 
 /**
- * mapUrl(url, kind) → nowy adres (string) albo null (bez zmian).
- * kind: 'css' dla @import, 'asset' dla url(...).
+ * mapUrl(url, kind) → new address (string) or null (no change).
+ * kind: 'css' for @import, 'asset' for url(...).
  */
 export function rewriteCss(css, mapUrl) {
   let out = css.replace(CSS_URL_RE, (match, i1, i2, i3, u1, u2, u3) => {
@@ -25,12 +25,12 @@ export function rewriteCss(css, mapUrl) {
     const mapped = mapUrl(url.trim(), 'asset');
     return mapped == null ? match : `url("${mapped}")`;
   });
-  // plik zapisujemy zawsze w UTF-8
+  // the file is always saved in UTF-8
   out = out.replace(/@charset\s+["'][^"']*["']\s*;/i, '@charset "UTF-8";');
   return out;
 }
 
-/** Odczytuje kodowanie z reguły @charset (jeśli jest). */
+/** Reads the encoding from the @charset rule (if present). */
 export function cssCharset(textLatin1) {
   const m = /^﻿?@charset\s+"([^"]+)"/i.exec(textLatin1);
   return m ? m[1] : null;

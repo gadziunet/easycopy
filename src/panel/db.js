@@ -1,5 +1,5 @@
-// Baza panelu: zadania (kolejka i historia), dziennik zadań, ustawienia.
-// Kopie stron leżą w plikach – w bazie są tylko informacje o zadaniach.
+// Panel database: jobs (queue and history), job log, settings.
+// Site copies are stored as files – the database only holds information about jobs.
 
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { DatabaseSync } from '../shared/sqlite.js';
 
 const MIGRATIONS = [
-  // 1: pierwsza wersja schematu
+  // 1: first schema version
   `
   CREATE TABLE jobs (
     id INTEGER PRIMARY KEY,
@@ -45,7 +45,7 @@ const MIGRATIONS = [
     value TEXT NOT NULL
   );
   `,
-  // 2: konta panelu
+  // 2: panel accounts
   `
   CREATE TABLE users (
     id INTEGER PRIMARY KEY,
@@ -56,7 +56,7 @@ const MIGRATIONS = [
     last_login_at INTEGER
   );
   `,
-  // 3: harmonogram (kopie cykliczne)
+  // 3: schedule (recurring copies)
   `
   CREATE TABLE schedules (
     id INTEGER PRIMARY KEY,
@@ -145,7 +145,7 @@ export class Db {
     this.db.close();
   }
 
-  // ---------- zadania ----------
+  // ---------- jobs ----------
 
   createJob({ url, name, options = {}, runAt = Date.now(), retryOf = null, scheduleId = null }) {
     const now = Date.now();
@@ -155,7 +155,7 @@ export class Db {
     return Number(r.lastInsertRowid);
   }
 
-  /** Poprawa ustawień zadania, które jeszcze czeka w kolejce. */
+  /** Updates the settings of a job that is still waiting in the queue. */
   updateQueuedJob(id, { url, name, options }) {
     const r = this.db
       .prepare("UPDATE jobs SET url = ?, name = ?, options = ? WHERE id = ? AND status = 'queued'")
@@ -167,13 +167,13 @@ export class Db {
     return Boolean(this.db.prepare("SELECT 1 FROM jobs WHERE name = ? AND status IN ('queued', 'running') LIMIT 1").get(name));
   }
 
-  /** Usuwa zakończone zadanie z historii (z dziennikiem). Pliki kopii zostają. */
+  /** Deletes a finished job from the history (with its log). The copy files are kept. */
   deleteJob(id) {
     const r = this.db.prepare("DELETE FROM jobs WHERE id = ? AND status NOT IN ('queued', 'running')").run(id);
     return Number(r.changes) === 1;
   }
 
-  /** Usuwa historię zakończonych zadań danego archiwum. */
+  /** Deletes the history of finished jobs for an archive. */
   deleteJobsByName(name) {
     return Number(this.db.prepare("DELETE FROM jobs WHERE name = ? AND status NOT IN ('queued', 'running')").run(name).changes);
   }
@@ -193,13 +193,13 @@ export class Db {
       .map(mapJob);
   }
 
-  /** Ostatnie zadanie dla każdej nazwy archiwum (do linku „Szczegóły” na liście archiwów). */
+  /** Latest job for each archive name (for the "Details" link in the archive list). */
   latestJobByName() {
     const rows = this.db.prepare('SELECT name, MAX(id) AS id FROM jobs GROUP BY name').all();
     return new Map(rows.map((r) => [r.name, Number(r.id)]));
   }
 
-  /** Bierze następne zadanie z kolejki (atomowo). */
+  /** Takes the next job from the queue (atomically). */
   claimNextJob(now = Date.now()) {
     return mapJob(
       this.db
@@ -224,7 +224,7 @@ export class Db {
       .run(status, Date.now(), stats ? JSON.stringify(stats) : null, pause ? JSON.stringify(pause) : null, error, id);
   }
 
-  /** Anulowanie: zadanie w kolejce znika od razu, uruchomione dostaje prośbę o zatrzymanie. */
+  /** Cancel: a queued job is removed at once, a running one gets a stop request. */
   requestCancel(id) {
     const job = this.getJob(id);
     if (!job) return null;
@@ -241,7 +241,7 @@ export class Db {
     return Boolean(row?.cancel_requested);
   }
 
-  /** Zadania „w trakcie” po restarcie aplikacji nie mają już procesu – oznaczamy je jako przerwane. */
+  /** Jobs "in progress" after an app restart no longer have a process – mark them as interrupted. */
   recoverInterrupted() {
     const r = this.db
       .prepare("UPDATE jobs SET status = 'aborted', finished_at = ?, error = ? WHERE status = 'running'")
@@ -249,14 +249,14 @@ export class Db {
     return Number(r.changes);
   }
 
-  // ---------- dziennik ----------
+  // ---------- log ----------
 
   addLog(jobId, level, message, code = null) {
     this.db.prepare('INSERT INTO job_log (job_id, at, level, code, message) VALUES (?, ?, ?, ?, ?)').run(jobId, Date.now(), level, code, message);
   }
 
   getLog(jobId, { afterId = 0, limit = 200 } = {}) {
-    // najnowsze wpisy, ale zwracane od najstarszego
+    // newest entries, but returned from the oldest
     return this.db
       .prepare('SELECT id, at, level, code, message FROM job_log WHERE job_id = ? AND id > ? ORDER BY id DESC LIMIT ?')
       .all(jobId, afterId, limit)
@@ -264,7 +264,7 @@ export class Db {
       .map((r) => ({ ...r, id: Number(r.id) }));
   }
 
-  /** Rotacja dziennika: starsze niż `days` dni oraz ponad `perJob` wpisów na zadanie. */
+  /** Log rotation: entries older than `days` days and more than `perJob` entries per job. */
   pruneLogs({ days = 30, perJob = 2000 } = {}) {
     this.db.prepare('DELETE FROM job_log WHERE at < ?').run(Date.now() - days * 86_400_000);
     this.db
@@ -278,7 +278,7 @@ export class Db {
       .run(perJob);
   }
 
-  // ---------- harmonogram ----------
+  // ---------- schedule ----------
 
   static mapSchedule(row) {
     if (!row) return null;
@@ -298,7 +298,7 @@ export class Db {
     };
   }
 
-  /** Tworzy albo podmienia harmonogram archiwum (jeden harmonogram na nazwę). */
+  /** Creates or replaces an archive schedule (one schedule per name). */
   saveSchedule({ name, url, options, frequency, time, weekday = null, monthday = null, nextRunAt, enabled = true }) {
     this.db
       .prepare(
@@ -347,13 +347,13 @@ export class Db {
     return Number(this.db.prepare('DELETE FROM schedules WHERE name = ?').run(name).changes);
   }
 
-  // ---------- konta ----------
+  // ---------- accounts ----------
 
   countUsers() {
     return Number(this.db.prepare('SELECT COUNT(*) AS n FROM users').get().n);
   }
 
-  /** Pierwsze konto zakładane tylko wtedy, gdy nie ma żadnego (atomowo – dwa kreatory naraz nie przejdą). */
+  /** The first account is created only when there is none (atomically – two setup wizards at once cannot both succeed). */
   createFirstUser(username, passwordHash) {
     const r = this.db
       .prepare(
@@ -376,7 +376,7 @@ export class Db {
     return this.db.prepare('SELECT id, username, created_at, last_login_at FROM users ORDER BY id').all();
   }
 
-  /** Nowe hasło unieważnia wszystkie dotychczasowe sesje tego konta. */
+  /** A new password invalidates all existing sessions of this account. */
   setPassword(id, passwordHash) {
     this.db.prepare('UPDATE users SET password_hash = ?, session_key = ? WHERE id = ?').run(passwordHash, randomBytes(16).toString('hex'), id);
   }
@@ -389,7 +389,7 @@ export class Db {
     this.db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), id);
   }
 
-  // ---------- ustawienia ----------
+  // ---------- settings ----------
 
   getSetting(key) {
     return this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
@@ -399,7 +399,7 @@ export class Db {
     this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
   }
 
-  /** Sekret do podpisywania ciasteczek sesji – tworzony przy pierwszym starcie. */
+  /** Secret for signing session cookies – created on first start. */
   sessionSecret() {
     let secret = this.getSetting('session_secret');
     if (!secret) {

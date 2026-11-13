@@ -1,9 +1,9 @@
-// Rozpoznawanie sygnałów, że serwer nas ogranicza albo blokuje (np. Cloudflare).
-// EasyCopy nie próbuje obchodzić takich zabezpieczeń – zwalnia albo się zatrzymuje.
+// Detecting signals that the server is rate limiting or blocking us (e.g. Cloudflare).
+// EasyCopy does not try to bypass such protections – it slows down or stops.
 
 import { msg } from '../shared/i18n.js';
 
-/** Retry-After: liczba sekund albo data HTTP → milisekundy (null, gdy brak). */
+/** Retry-After: number of seconds or an HTTP date → milliseconds (null when missing). */
 export function parseRetryAfter(value, now = Date.now()) {
   if (!value) return null;
   const v = value.trim();
@@ -22,8 +22,8 @@ const CHALLENGE_MARKERS = [
 ];
 
 /**
- * Zwraca { type: 'rate' | 'challenge', status, retryAfterMs, message } albo null.
- * bodySample – początek odpowiedzi (tekst), żeby rozpoznać stronę „Just a moment…”.
+ * Returns { type: 'rate' | 'challenge', status, retryAfterMs, message } or null.
+ * bodySample – the start of the response (text), to detect a "Just a moment…" page.
  */
 export function detectBlock(status, headers, bodySample = '') {
   const get = (name) => (typeof headers.get === 'function' ? headers.get(name) : headers[name]);

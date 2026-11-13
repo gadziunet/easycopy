@@ -30,3 +30,5 @@
 - Worker in a separate process, queue in an SQLite database (built-in `node:sqlite`), a warning
   when the database is on a network share.
 - Docker image (amd64, arm64) with PUID/PGID and a healthcheck, example `docker-compose.yml`.
+- Connection errors in the log and job errors say why: address not found (DNS),
+  timeout, refused or interrupted connection, unreachable server, certificate error.

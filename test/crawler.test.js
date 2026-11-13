@@ -34,17 +34,17 @@ test('pełna kopia strony testowej', async () => {
     assert.equal(r.manifest.status, 'complete');
 
     const index = await r.read('index.html');
-    // strony
+    // pages
     assert.ok(index.includes('href="o-nas/index.html"'), 'link do /o-nas');
     assert.ok(index.includes('href="blog/index.html"'), 'link do blog/');
     assert.ok(index.includes('href="strona/index_page-2_sort-asc.html"'), 'parametry zapytania');
     assert.ok(index.includes('href="#top"'), 'kotwica bez zmian');
     assert.ok(index.includes('href="mailto:kontakt@example.com"'), 'mailto bez zmian');
     assert.ok(index.includes('href="https://external.example.org/x"'), 'zewnętrzny link do oryginału');
-    // niepobrane strony z witryny → _brak.html
+    // subpages of the site that were not downloaded → _brak.html
     assert.match(index, /href="_brak\.html#u=[^"]*wylaczone[^"]*&amp;r=wykluczone"/);
     assert.match(index, /href="_brak\.html#u=[^"]*film\.mp4[^"]*&amp;r=typ"/);
-    // zasoby
+    // resources
     assert.ok(index.includes('href="css/style_ver-1.2.css"'), 'arkusz CSS');
     assert.ok(index.includes(`src="_ext/127.0.0.1_${site.port}/lib.js"`), 'skrypt z „CDN”');
     assert.ok(!index.includes('integrity'), 'integrity usunięte');
@@ -54,7 +54,7 @@ test('pełna kopia strony testowej', async () => {
     assert.ok(index.includes('url("img/hero.jpg")'));
     assert.ok(index.includes('Zażółć gęślą jaźń'));
 
-    // CSS przepisany względem swojego położenia
+    // CSS rewritten relative to its own location
     const css = await r.read('css/style_ver-1.2.css');
     assert.ok(css.includes('@import url("fonts.css")'));
     assert.ok(css.includes('url("../img/bg.jpg")'));
@@ -65,34 +65,34 @@ test('pełna kopia strony testowej', async () => {
     assert.ok(r.has('img/logo@2x.png'));
     assert.ok(r.has(`_ext/127.0.0.1_${site.port}/lib.js`));
 
-    // kodowanie ISO-8859-2 → UTF-8
+    // ISO-8859-2 encoding → UTF-8
     const blog = await r.read('blog/index.html');
     assert.ok(blog.includes('Zażółć gęślą jaźń'), 'polskie znaki po konwersji');
     assert.ok(blog.includes('charset=utf-8'));
     assert.ok(blog.includes('href="../o-nas/index.html"'));
 
-    // głębokość: /gleboko jest na poziomie 4
+    // depth: /gleboko is at level 4
     const jan = await r.read('o-nas/jan/index.html');
     assert.match(jan, /href="\.\.\/\.\.\/_brak\.html#u=[^"]*gleboko[^"]*&amp;r=glebokosc"/);
     assert.ok(!r.has('gleboko/index.html'));
 
-    // robots.txt i 404 → strony-przekierowania do _brak.html
+    // robots.txt and 404 → redirect pages to _brak.html
     const priv = await r.read('prywatne/index.html');
     assert.match(priv, /_brak\.html#u=.*&amp;r=robots/);
     const missing = await r.read('brak-strony/index.html');
     assert.match(missing, /_brak\.html#u=.*&amp;r=blad/);
 
-    // PDF pod linkiem
+    // PDF behind a link
     assert.equal(await r.read('plik.pdf'), '%PDF-1.4 test');
 
-    // pliki pomocnicze
+    // helper files
     assert.ok((await r.read('_brak.html')).includes('Ta strona nie została zarchiwizowana'));
     const m = JSON.parse(await r.read('manifest.json'));
     assert.equal(m.entry, 'index.html');
     assert.equal(m.notDownloaded[`${site.url}gleboko`], 'glebokosc');
     assert.ok(m.stats.pages >= 6);
 
-    // /wylaczone nie było w ogóle pobierane
+    // /wylaczone was not downloaded at all
     assert.ok(!site.hits.has('localhost/wylaczone/tajne'));
     assert.ok(!site.hits.has('localhost/prywatne/'));
   } finally {
@@ -161,7 +161,7 @@ test('archiveSite: katalog z datą i dowiązanie latest', async () => {
     assert.match(a.version, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal(b.version, `${a.version}-2`);
     assert.equal(await readlink(path.join(root, 'strona-testowa', 'latest')), b.version);
-    // przy głębokości 0 wszystkie linki do podstron prowadzą do _brak.html
+    // with depth 0 all links to subpages lead to _brak.html
     const index = await readFile(path.join(b.dir, 'index.html'), 'utf8');
     assert.match(index, /href="_brak\.html#u=[^"]*o-nas&amp;r=glebokosc"/);
   } finally {

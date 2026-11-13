@@ -1,4 +1,4 @@
-// Odczyt katalogu archiwów: <root>/<nazwa>/<wersja>/manifest.json
+// Reading the archive directory: <root>/<name>/<version>/manifest.json
 
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -6,7 +6,7 @@ import path from 'node:path';
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,99}$/;
 export const VERSION_RE = /^\d{4}-\d{2}-\d{2}(?:-\d{1,4})?$/;
 
-/** Porządek wersji: data, potem numer (2026-11-04 < 2026-11-04-2 < 2026-11-04-10). */
+/** Version order: date, then number (2026-11-04 < 2026-11-04-2 < 2026-11-04-10). */
 export function compareVersions(a, b) {
   const [da, na = '1'] = [a.slice(0, 10), a.slice(11)];
   const [db, nb = '1'] = [b.slice(0, 10), b.slice(11)];
@@ -22,7 +22,7 @@ async function isDir(p) {
   }
 }
 
-/** Lista wersji archiwum, od najstarszej. */
+/** List of archive versions, from the oldest. */
 export async function listVersions(root, name) {
   if (!NAME_RE.test(name)) return [];
   let items;
@@ -37,7 +37,7 @@ export async function listVersions(root, name) {
     .sort(compareVersions);
 }
 
-/** Najnowsza wersja: dowiązanie „latest”, a jeśli go nie ma – najnowszy katalog. */
+/** Newest version: the "latest" symlink, or if it is missing – the newest directory. */
 export async function latestVersion(root, name) {
   const versions = await listVersions(root, name);
   if (!versions.length) return null;
@@ -45,7 +45,7 @@ export async function latestVersion(root, name) {
     const target = path.basename(await realpath(path.join(root, name, 'latest')));
     if (versions.includes(target)) return target;
   } catch {
-    // brak dowiązania – bierzemy najnowszy katalog
+    // no symlink – take the newest directory
   }
   return versions[versions.length - 1];
 }
@@ -58,7 +58,7 @@ export async function readManifest(root, name, version) {
   }
 }
 
-/** Podsumowanie wszystkich archiwów do strony z listą. */
+/** Summary of all archives for the list page. */
 export async function listArchives(root) {
   let items;
   try {

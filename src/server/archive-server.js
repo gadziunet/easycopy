@@ -1,6 +1,6 @@
-// Serwer archiwów: serwuje kopie z folderu pod /a/<nazwa>/ (najnowsza) i /a/<nazwa>/<wersja>/.
-// Działa na osobnym porcie niż panel, więc dla przeglądarki to inne źródło (origin),
-// a dodatkowo każda kopia dostaje nagłówek CSP „sandbox” – nie widzi sesji panelu.
+// Archive server: serves copies from a folder under /a/<name>/ (newest) and /a/<name>/<version>/.
+// It runs on a different port than the panel, so for the browser it is a different origin,
+// and on top of that every copy gets a CSP "sandbox" header – it cannot see the panel session.
 
 import http from 'node:http';
 import { createReadStream } from 'node:fs';
@@ -17,10 +17,10 @@ import { isCompressible, isFont, mimeType } from './mime.js';
 
 const MISSING_PAGE = '_brak.html';
 
-// Kopie: bez dostępu do źródła (brak allow-same-origin), linki mogą otwierać nowe karty.
+// Copies: no access to the origin (no allow-same-origin), links can open new tabs.
 const SANDBOX_BASE = 'sandbox allow-forms allow-popups allow-popups-to-escape-sandbox';
 const SANDBOX_JS = `${SANDBOX_BASE} allow-scripts`;
-// Strony samego serwera (lista archiwów, błędy): bez skryptów, bez osadzania w ramkach.
+// The server's own pages (archive list, errors): no scripts, no embedding in frames.
 const SERVER_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 function sha256(text) {
@@ -51,7 +51,7 @@ function errorPage(res, status, key, textKey = key) {
   );
 }
 
-/** Rozbija ścieżkę na bezpieczne segmenty albo zwraca null (próba wyjścia poza katalog itp.). */
+/** Splits the path into safe segments, or returns null (attempt to leave the directory, etc.). */
 function safeSegments(rest) {
   const segments = [];
   for (const raw of rest.split('/')) {
@@ -68,7 +68,7 @@ function safeSegments(rest) {
   return segments;
 }
 
-/** Zakres z nagłówka Range (tylko pojedynczy zakres bajtów). */
+/** Range from the Range header (single byte range only). */
 function parseRange(header, size) {
   const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
   if (!m || (m[1] === '' && m[2] === '')) return 'invalid';
@@ -93,8 +93,8 @@ function pickEncoding(acceptEncoding = '') {
 }
 
 /**
- * Tworzy funkcję obsługi żądań (można ją podpiąć pod własny serwer HTTP).
- * options: archiveRoot (wymagane), password (opcjonalne, Basic Auth), log (funkcja)
+ * Creates the request handler function (it can be attached to your own HTTP server).
+ * options: archiveRoot (required), password (optional, Basic Auth), log (function)
  */
 export function createArchiveHandler({ archiveRoot, password = null, log = () => {}, defaultLanguage = null }) {
   const root = path.resolve(archiveRoot);
@@ -163,7 +163,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
   }
 
   async function serveArchive(req, res, url) {
-    // /a/<nazwa>[/<wersja>]/<ścieżka>
+    // /a/<name>[/<version>]/<path>
     const segments = safeSegments(url.pathname.slice('/a/'.length));
     if (!segments) return errorPage(res, 400, 'invalid');
     const [name, maybeVersion, ...restAfterVersion] = segments;
@@ -196,7 +196,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
     }
     if (st.isDirectory()) {
       if (!url.pathname.endsWith('/')) {
-        // linki względne w kopii wymagają ukośnika na końcu
+        // relative links in the copy require a trailing slash
         res.writeHead(301, { location: `${url.pathname}/${url.search}` });
         return res.end();
       }
@@ -209,7 +209,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
     }
     if (!st.isFile()) return errorPage(res, 404, 'noFile');
 
-    // ostatnia linia obrony: po rozwinięciu dowiązań plik musi leżeć w katalogu wersji
+    // last line of defence: after resolving symlinks the file must be inside the version directory
     const real = await realpath(filePath).catch(() => null);
     if (!real || !real.startsWith(versionDir + path.sep)) {
       return errorPage(res, 404, 'noFile');
@@ -222,7 +222,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
       'content-security-policy': allowJs ? SANDBOX_JS : SANDBOX_BASE,
       'referrer-policy': 'no-referrer',
     };
-    // dokument w sandboxie ma „puste” źródło (Origin: null) – czcionki wymagają wtedy CORS
+    // a sandboxed document has an opaque origin (Origin: null) – fonts then need CORS
     if (req.headers.origin === 'null') headers['access-control-allow-origin'] = 'null';
 
     return serveFile(req, res, real, st, headers);
@@ -244,7 +244,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
         return res.end();
       }
 
-      // czcionki pobierane z kopii w sandboxie idą bez danych logowania – przepuszczamy je bez hasła
+      // fonts loaded from a sandboxed copy are sent without credentials – we let them through without a password
       const fontFromSandbox = req.headers.origin === 'null' && isFont(url.pathname);
       if (!fontFromSandbox && !authorized(req)) {
         return send(res, 401, req.t('archiveServer.loginRequired'), {
@@ -268,7 +268,7 @@ export function createArchiveHandler({ archiveRoot, password = null, log = () =>
   };
 }
 
-/** Tworzy serwer HTTP archiwów (jeszcze nie nasłuchuje – wywołaj .listen()). */
+/** Creates the archive HTTP server (not listening yet – call .listen()). */
 export function createArchiveServer(options) {
   const server = http.createServer(createArchiveHandler(options));
   server.keepAliveTimeout = 5_000;

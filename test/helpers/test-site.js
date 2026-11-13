@@ -1,6 +1,6 @@
-// Lokalna strona testowa. Ten sam serwer odpowiada jako dwa hosty:
-//   http://localhost:PORT   – archiwizowana witryna
-//   http://127.0.0.1:PORT   – „zewnętrzny CDN”
+// Local test site. The same server answers as two hosts:
+//   http://localhost:PORT   – archived site
+//   http://127.0.0.1:PORT   – "external CDN"
 
 import http from 'node:http';
 
@@ -8,7 +8,7 @@ const html = (body, head = '') =>
   `<!doctype html><html lang="pl"><head><meta charset="utf-8"><title>Test</title>${head}</head><body>${body}</body></html>`;
 
 function iso88592(text) {
-  // minimalne kodowanie ISO-8859-2 dla polskich znaków użytych w teście
+  // minimal ISO-8859-2 encoding for the Polish characters used in the test
   const map = { ą: 0xb1, ć: 0xe6, ę: 0xea, ł: 0xb3, ń: 0xf1, ó: 0xf3, ś: 0xb6, ź: 0xbc, ż: 0xbf, Ż: 0xaf };
   return Buffer.from([...text].map((ch) => map[ch] ?? ch.charCodeAt(0)));
 }

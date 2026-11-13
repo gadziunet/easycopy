@@ -1,6 +1,6 @@
-// Wbudowany w Node moduł SQLite (node:sqlite, Node 22.13+), bez zależności z npm.
-// Node oznacza go jako „experimental” i wypisuje ostrzeżenie przy każdym starcie –
-// wyciszamy tylko to jedno ostrzeżenie, pozostałe działają normalnie.
+// SQLite module built into Node (node:sqlite, Node 22.13+), no npm dependencies.
+// Node marks it as "experimental" and prints a warning on every start –
+// we silence only this one warning, all others work normally.
 
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = function emitWarning(warning, ...args) {

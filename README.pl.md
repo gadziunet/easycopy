@@ -233,6 +233,11 @@ docker build -t easycopy .
 Obraz w `ghcr.io` budują GitHub Actions: gałąź `main` → tag `edge`,
 tag `v1.2.3` → `1.2.3`, `1.2` i `latest` (amd64 i arm64).
 
+## Jak powstaje ten projekt
+
+EasyCopy powstaje z pomocą Claude (asystenta AI firmy Anthropic).
+Autor sprawdza i testuje każdą zmianę, zanim zostanie opublikowana.
+
 ## Licencja
 
 [GNU AGPL-3.0](LICENSE). Możesz używać, zmieniać i rozpowszechniać EasyCopy, ale jeśli

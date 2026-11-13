@@ -1,4 +1,4 @@
-// Logowanie do panelu (konta w bazie) i ochrona formularzy.
+// Panel login (accounts in the database) and form protection.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
@@ -11,8 +11,8 @@ const MAX_AGE_S = 30 * 24 * 3600;
 export { parseCookies };
 
 /**
- * Sesja = id konta + data ważności + podpis HMAC. Podpis obejmuje klucz sesji konta,
- * więc zmiana hasła (nowy klucz) unieważnia wszystkie wcześniejsze sesje.
+ * Session = account id + expiry time + HMAC signature. The signature includes the account's session key,
+ * so changing the password (new key) invalidates all earlier sessions.
  */
 export function createAuth({ db, secret }) {
   const sign = (uid, exp, sessionKey) => createHmac('sha256', secret).update(`ec2.${uid}.${exp}.${sessionKey}`).digest('base64url');
@@ -22,7 +22,7 @@ export function createAuth({ db, secret }) {
       return db.countUsers() === 0;
     },
 
-    /** Zwraca konto przy poprawnym loginie i haśle, inaczej null. */
+    /** Returns the account for a correct username and password, otherwise null. */
     async login(username, password) {
       const user = username ? db.getUserByName(username) : null;
       const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
@@ -41,7 +41,7 @@ export function createAuth({ db, secret }) {
       return `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`;
     },
 
-    /** Zalogowane konto z ciasteczka albo null. */
+    /** Logged-in account from the cookie, or null. */
     currentUser(req) {
       const value = parseCookies(req.headers.cookie)[COOKIE];
       if (!value) return null;
@@ -57,8 +57,8 @@ export function createAuth({ db, secret }) {
 }
 
 /**
- * Formularze (POST) przyjmujemy tylko z tej samej strony – inna strona otwarta w przeglądarce
- * nie może w Twoim imieniu dodać zadania ani niczego anulować (ochrona przed CSRF).
+ * Forms (POST) are accepted only from the same site – another site open in the browser
+ * cannot add a job or cancel anything on your behalf (CSRF protection).
  */
 export function isSameOrigin(req) {
   const host = req.headers.host;

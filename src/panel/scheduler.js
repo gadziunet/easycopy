@@ -16,7 +16,7 @@ function parseTime(hm) {
   return h <= 23 && min <= 59 ? { h, min } : null;
 }
 
-/** Następny termin (ms) ściśle po `from`. */
+/** Next run time (ms) strictly after `from`. */
 export function computeNextRun({ frequency, time, weekday, monthday }, from = Date.now()) {
   const t = parseTime(time);
   if (!t) throw new Error(`Invalid time "${time}"`);
@@ -64,8 +64,8 @@ export function scheduleMsg(s) {
 }
 
 /**
- * Jeden przebieg harmonogramu: dla każdego terminu, który już minął, dodaje zadanie do kolejki.
- * Gdy poprzednia kopia tego archiwum jeszcze trwa, termin jest pomijany (bez kumulowania zadań).
+ * One scheduler pass: for every run time that has passed, adds a job to the queue.
+ * If the previous copy of this archive is still running, the run is skipped (jobs do not pile up).
  */
 export function schedulerTick(db, now = Date.now(), log = () => {}) {
   const created = [];

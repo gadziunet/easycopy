@@ -1,6 +1,6 @@
-// Proces workera: osobny proces Node uruchamiany przez „easycopy start”.
-// Bierze zadania z kolejki w bazie i wykonuje je po kolei. Awaria crawlera
-// nie kładzie panelu – proces główny uruchomi workera ponownie.
+// Worker process: a separate Node process started by "easycopy start".
+// Takes jobs from the queue in the database and runs them one by one. A crawler crash
+// does not bring the panel down – the main process restarts the worker.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +29,7 @@ export async function workerLoop({ dbFile, archiveRoot, log = console.log, isSto
   }
 }
 
-// uruchomienie jako proces potomny
+// running as a child process
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const dataDir = path.resolve(process.env.DATA_DIR ?? 'data');
   const archiveRoot = path.resolve(process.env.ARCHIVE_DIR ?? path.join(dataDir, 'archiwa'));

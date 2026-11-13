@@ -54,7 +54,7 @@ after(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
 
-/** Surowe żądanie HTTP – bez normalizacji ścieżki i bez dekompresji. */
+/** Raw HTTP request – no path normalization and no decompression. */
 function request(port, pathname, headers = {}, method = 'GET') {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path: pathname, method, headers }, (res) => {
@@ -101,7 +101,7 @@ test('lista archiwów', async () => {
 
 test('/a/<nazwa> → przekierowanie z ukośnikiem, potem wersja z dowiązania latest', async () => {
   await withServer({}, async (port) => {
-    // bez dowiązania latest wygrywa najnowszy katalog
+    // without the latest symlink the newest directory wins
     let r = await request(port, '/a/strona/');
     assert.equal(r.status, 200);
     assert.ok(r.body.toString().includes('nowa'));
@@ -201,11 +201,11 @@ test('hasło (Basic Auth) i czcionki z sandboxu', async () => {
     const good = `Basic ${Buffer.from('ktos:tajne-haslo').toString('base64')}`;
     assert.equal((await request(port, '/', { authorization: good })).status, 200);
     assert.equal((await request(port, '/a/strona/2026-11-03/', { authorization: good })).status, 200);
-    // czcionka z dokumentu w sandboxie (Origin: null) – bez hasła, z CORS
+    // font from a sandboxed document (Origin: null) – no password, with CORS
     const font = await request(port, '/a/strona/2026-11-03/fonts/a.woff2', { origin: 'null' });
     assert.equal(font.status, 200);
     assert.equal(font.headers['access-control-allow-origin'], 'null');
-    // inne pliki z Origin: null nadal wymagają hasła
+    // other files with Origin: null still require the password
     assert.equal((await request(port, '/a/strona/2026-11-03/style.css', { origin: 'null' })).status, 401);
     assert.equal((await request(port, '/healthz')).status, 200, 'healthcheck bez hasła');
   });
