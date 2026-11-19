@@ -32,3 +32,5 @@
 - Docker image (amd64, arm64) with PUID/PGID and a healthcheck, example `docker-compose.yml`.
 - Connection errors in the log and job errors say why: address not found (DNS),
   timeout, refused or interrupted connection, unreachable server, certificate error.
+- Documentation in the GitHub Wiki (English and Polish), kept in the `docs/` folder
+  and published by a GitHub Action.

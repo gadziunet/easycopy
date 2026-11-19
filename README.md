@@ -2,6 +2,8 @@
 
 **English** · [Polski](README.pl.md)
 
+Documentation: **[EasyCopy Wiki](https://github.com/gadziunet/easycopy/wiki)** (the pages are kept in [`docs/`](docs/)).
+
 A simple website archiver for your homelab. It makes a copy of a site for offline browsing,
 in the spirit of SiteSucker or WebCopy, with a few simple presets instead of dozens of options.
 It runs in a single Docker container.

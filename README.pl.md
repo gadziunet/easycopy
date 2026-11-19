@@ -2,6 +2,8 @@
 
 [English](README.md) · **Polski**
 
+Dokumentacja: **[Wiki EasyCopy](https://github.com/gadziunet/easycopy/wiki/Strona-glowna)** (strony są w katalogu [`docs/`](docs/)).
+
 Prosty archiwizator stron WWW do homelabu. Robi kopię witryny do przeglądania offline,
 w stylu SiteSuckera albo WebCopy, z prostymi presetami zamiast dziesiątek opcji.
 Działa w jednym kontenerze Docker.

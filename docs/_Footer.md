@@ -1,0 +1,1 @@
+[EasyCopy](https://github.com/gadziunet/easycopy) · AGPL-3.0 · These pages are kept in the repository in [`docs/`](https://github.com/gadziunet/easycopy/tree/main/docs) / Strony są w repozytorium w katalogu `docs/`.
