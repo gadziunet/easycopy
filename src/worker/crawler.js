@@ -252,7 +252,7 @@ export class Crawler extends EventEmitter {
   async fetchWithRetries(entry, h) {
     let lastError;
     for (let attempt = 0; attempt <= this.opts.retries; attempt++) {
-      if (this.stopReason === 'aborted') throw new Error('Przerwano');
+      if (this.stopReason === 'aborted') throw new Error('Aborted');
       try {
         const r = await this.fetchOnce(entry, h);
         const transient = [500, 502, 504].includes(r.res.status) || (r.res.status === 503 && !r.block);

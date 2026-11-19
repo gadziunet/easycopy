@@ -27,7 +27,7 @@ async function crawl(site, dirName, options = {}) {
   return { outDir, manifest, read, has: (p) => existsSync(path.join(outDir, p)) };
 }
 
-test('pełna kopia strony testowej', async () => {
+test('full copy of the test site', async () => {
   const site = await startTestSite();
   try {
     const r = await crawl(site, 'full', { maxDepth: 3, exclude: ['/wylaczone/*'], skipExtensions: ['mp4'] });
@@ -35,19 +35,19 @@ test('pełna kopia strony testowej', async () => {
 
     const index = await r.read('index.html');
     // pages
-    assert.ok(index.includes('href="o-nas/index.html"'), 'link do /o-nas');
-    assert.ok(index.includes('href="blog/index.html"'), 'link do blog/');
+    assert.ok(index.includes('href="o-nas/index.html"'), 'link to /o-nas');
+    assert.ok(index.includes('href="blog/index.html"'), 'link to blog/');
     assert.ok(index.includes('href="strona/index_page-2_sort-asc.html"'), 'parametry zapytania');
-    assert.ok(index.includes('href="#top"'), 'kotwica bez zmian');
-    assert.ok(index.includes('href="mailto:kontakt@example.com"'), 'mailto bez zmian');
-    assert.ok(index.includes('href="https://external.example.org/x"'), 'zewnętrzny link do oryginału');
+    assert.ok(index.includes('href="#top"'), 'anchor unchanged');
+    assert.ok(index.includes('href="mailto:kontakt@example.com"'), 'mailto unchanged');
+    assert.ok(index.includes('href="https://external.example.org/x"'), 'external link to the original');
     // subpages of the site that were not downloaded → _brak.html
     assert.match(index, /href="_brak\.html#u=[^"]*wylaczone[^"]*&amp;r=wykluczone"/);
     assert.match(index, /href="_brak\.html#u=[^"]*film\.mp4[^"]*&amp;r=typ"/);
     // resources
     assert.ok(index.includes('href="css/style_ver-1.2.css"'), 'arkusz CSS');
-    assert.ok(index.includes(`src="_ext/127.0.0.1_${site.port}/lib.js"`), 'skrypt z „CDN”');
-    assert.ok(!index.includes('integrity'), 'integrity usunięte');
+    assert.ok(index.includes(`src="_ext/127.0.0.1_${site.port}/lib.js"`), 'script from the "CDN"');
+    assert.ok(!index.includes('integrity'), 'integrity removed');
     assert.ok(index.includes('srcset="img/logo.png 1x, img/logo@2x.png 2x"'));
     assert.ok(index.includes('data-src="img/lazy.jpg"'));
     assert.ok(index.includes('url(&quot;img/bg.jpg&quot;)'));
@@ -67,7 +67,7 @@ test('pełna kopia strony testowej', async () => {
 
     // ISO-8859-2 encoding → UTF-8
     const blog = await r.read('blog/index.html');
-    assert.ok(blog.includes('Zażółć gęślą jaźń'), 'polskie znaki po konwersji');
+    assert.ok(blog.includes('Zażółć gęślą jaźń'), 'Polish characters after conversion');
     assert.ok(blog.includes('charset=utf-8'));
     assert.ok(blog.includes('href="../o-nas/index.html"'));
 
@@ -100,7 +100,7 @@ test('pełna kopia strony testowej', async () => {
   }
 });
 
-test('limit stron: reszta trafia do _brak.html z powodem „limit”', async () => {
+test('page limit: the rest goes to _brak.html with the reason "limit"', async () => {
   const site = await startTestSite();
   try {
     const r = await crawl(site, 'limit', { maxPages: 2, concurrency: 1 });
@@ -115,19 +115,19 @@ test('limit stron: reszta trafia do _brak.html z powodem „limit”', async () 
   }
 });
 
-test('jednorazowe 429: zwalnia, ponawia i kończy kopię', async () => {
+test('a single 429: slows down, retries and finishes the copy', async () => {
   const site = await startTestSite({ blockMode: 'rate-once' });
   try {
     const r = await crawl(site, 'rate-once', { maxDepth: 1, maxBlocks: 3 });
     assert.equal(r.manifest.status, 'complete');
     assert.ok(r.has('index.html'));
-    assert.equal(site.hits.get('localhost/'), 2, 'strona startowa pobrana ponownie po 429');
+    assert.equal(site.hits.get('localhost/'), 2, 'start page downloaded again after 429');
   } finally {
     await site.close();
   }
 });
 
-test('ciągłe 429: po 3 blokadach pobieranie zostaje wstrzymane', async () => {
+test('repeated 429: downloading is paused after 3 blocks', async () => {
   const site = await startTestSite({ blockMode: 'rate-always' });
   try {
     const r = await crawl(site, 'rate-always', { maxBlocks: 3, concurrency: 1 });
@@ -139,7 +139,7 @@ test('ciągłe 429: po 3 blokadach pobieranie zostaje wstrzymane', async () => {
   }
 });
 
-test('strona weryfikacji Cloudflare: natychmiastowa pauza, bez prób obejścia', async () => {
+test('Cloudflare verification page: immediate pause, no bypass attempts', async () => {
   const site = await startTestSite({ blockMode: 'challenge' });
   try {
     const r = await crawl(site, 'challenge', {});
@@ -151,7 +151,7 @@ test('strona weryfikacji Cloudflare: natychmiastowa pauza, bez prób obejścia',
   }
 });
 
-test('archiveSite: katalog z datą i dowiązanie latest', async () => {
+test('archiveSite: dated directory and the latest symlink', async () => {
   const site = await startTestSite();
   try {
     const root = path.join(tmp, 'archiwa');

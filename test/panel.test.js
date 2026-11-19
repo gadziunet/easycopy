@@ -30,26 +30,26 @@ after(async () => {
 
 const fast = { rps: 1000, concurrency: 4, retryDelayMs: 10, blockBaseDelayMs: 10, slowDownIntervalMs: 10, timeoutMs: 5000 };
 
-test('baza: kolejka, anulowanie, odzyskiwanie po restarcie, rotacja dziennika', () => {
+test('database: queue, cancelling, recovery after a restart, log rotation', () => {
   const db = openDatabase(':memory:');
   const later = db.createJob({ url: 'https://www.example.com/', name: 'b', runAt: Date.now() + 60_000 });
   const first = db.createJob({ url: 'https://www.example.com/', name: 'a' });
   const second = db.createJob({ url: 'https://www.example.org/', name: 'c' });
-  assert.equal(db.claimNextJob().id, first, 'najpierw zadanie dodane wcześniej');
-  assert.equal(db.requestCancel(second).status, 'cancelled', 'zadanie z kolejki anulowane od razu');
-  assert.equal(db.claimNextJob(), null, 'zaplanowane na później jeszcze czeka');
+  assert.equal(db.claimNextJob().id, first, 'the earlier job comes first');
+  assert.equal(db.requestCancel(second).status, 'cancelled', 'a queued job is cancelled at once');
+  assert.equal(db.claimNextJob(), null, 'a job planned for later is still waiting');
   assert.equal(db.claimNextJob(Date.now() + 120_000).id, later);
-  assert.equal(db.requestCancel(first).cancelRequested, true, 'uruchomione dostaje prośbę o zatrzymanie');
+  assert.equal(db.requestCancel(first).cancelRequested, true, 'a running job gets a stop request');
   assert.equal(db.recoverInterrupted(), 2);
   assert.equal(db.getJob(first).status, 'aborted');
   for (let i = 0; i < 10; i++) db.addLog(first, 'info', `wpis ${i}`);
   db.pruneLogs({ perJob: 3 });
   assert.deepEqual(db.getLog(first).map((l) => l.message), ['wpis 7', 'wpis 8', 'wpis 9']);
-  assert.equal(db.sessionSecret(), db.sessionSecret(), 'sekret sesji stały');
+  assert.equal(db.sessionSecret(), db.sessionSecret(), 'session secret is stable');
   db.close();
 });
 
-test('formularz: walidacja i opcje zadania', () => {
+test('form: validation and job options', () => {
   const bad = parseJobForm(new URLSearchParams({ url: 'ftp://x', maxPages: '-1', ua: 'custom' }));
   assert.ok(bad.errors.url && bad.errors.maxPages && bad.errors.customUa);
   assert.equal(bad.job, null);
@@ -61,7 +61,7 @@ test('formularz: walidacja i opcje zadania', () => {
   assert.deepEqual(ok.errors, {});
   assert.equal(ok.job.url, 'https://www.example.com/blog/');
   assert.equal(ok.job.name, 'moj-blog');
-  assert.equal(ok.job.options.subdomains, true, 'brak „tylko ta domena” = z subdomenami');
+  assert.equal(ok.job.options.subdomains, true, 'no "this domain only" = with subdomains');
   assert.deepEqual(ok.job.options.skipExtensions, ['mp4', 'zip']);
   assert.equal(ok.job.options.maxBytes, 500 * 1024 ** 2);
   assert.equal(ok.job.options.browser, 'safari');
@@ -71,7 +71,7 @@ test('formularz: walidacja i opcje zadania', () => {
   assert.equal(back.sameDomain, false);
 });
 
-test('worker: wykonuje zadanie z kolejki i zapisuje postęp oraz dziennik', async () => {
+test('worker: runs a queued job and stores progress and the log', async () => {
   const site = await startTestSite();
   const archiveRoot = path.join(tmp, 'a1');
   const db = openDatabase(path.join(tmp, 'w1.db'));
@@ -96,7 +96,7 @@ test('worker: wykonuje zadanie z kolejki i zapisuje postęp oraz dziennik', asyn
   }
 });
 
-test('worker: anulowanie w trakcie pobierania', async () => {
+test('worker: cancelling during a download', async () => {
   const site = await startTestSite();
   const db = openDatabase(path.join(tmp, 'w2.db'));
   try {
@@ -156,7 +156,7 @@ async function setup(port, form, username = 'admin', password = 'tajne-haslo') {
   return cookieOf(res);
 }
 
-test('kreator instalacji: pierwsze konto, tylko raz', async () => {
+test('setup wizard: first account, only once', async () => {
   await withPanel(async ({ port, db, form }) => {
     // empty database → everything leads to the setup wizard
     const home = await request(port, 'GET', '/');
@@ -164,7 +164,7 @@ test('kreator instalacji: pierwsze konto, tylko raz', async () => {
     assert.equal(home.headers.location, '/instalacja');
     assert.equal((await request(port, 'GET', '/logowanie')).headers.location, '/instalacja');
     assert.equal((await request(port, 'GET', '/api/aktywne')).status, 503);
-    assert.equal((await request(port, 'GET', '/healthz')).status, 200, 'healthcheck działa przed instalacją');
+    assert.equal((await request(port, 'GET', '/healthz')).status, 200, 'healthcheck works before setup');
     const page = await request(port, 'GET', '/instalacja');
     assert.equal(page.status, 200);
     assert.ok(page.body.includes('Utwórz konto administratora'));
@@ -181,10 +181,10 @@ test('kreator instalacji: pierwsze konto, tylko raz', async () => {
     assert.equal(db.countUsers(), 0);
 
     const cookie = await setup(port, form);
-    assert.ok(cookie, 'po instalacji od razu zalogowany');
+    assert.ok(cookie, 'signed in right after setup');
     assert.equal(db.countUsers(), 1);
     const user = db.getUserByName('admin');
-    assert.match(user.password_hash, /^scrypt\$/, 'hasło zapisane jako skrót scrypt');
+    assert.match(user.password_hash, /^scrypt\$/, 'password stored as a scrypt hash');
     assert.ok(!user.password_hash.includes('tajne-haslo'));
 
     // the setup wizard does not work a second time
@@ -196,14 +196,14 @@ test('kreator instalacji: pierwsze konto, tylko raz', async () => {
 
     const logged = await request(port, 'GET', '/', { headers: { cookie } });
     assert.equal(logged.status, 200);
-    assert.ok(logged.body.includes('admin'), 'login w nagłówku');
+    assert.ok(logged.body.includes('admin'), 'username in the header');
   });
 });
 
-test('logowanie, wylogowanie i zmiana hasła', async () => {
+test('sign-in, sign-out and password change', async () => {
   await withPanel(async ({ port, form }) => {
     const first = await setup(port, form);
-    assert.equal((await request(port, 'GET', '/')).headers.location, '/logowanie', 'bez ciasteczka – logowanie');
+    assert.equal((await request(port, 'GET', '/')).headers.location, '/logowanie', 'no cookie – sign-in page');
     assert.equal((await request(port, 'GET', '/api/aktywne')).status, 401);
 
     const bad = await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'zle-haslo' }));
@@ -212,7 +212,7 @@ test('logowanie, wylogowanie i zmiana hasła', async () => {
     assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'nie-ma', password: 'tajne-haslo' }))).status, 401);
 
     const good = await request(port, 'POST', '/logowanie', form({ username: 'ADMIN', password: 'tajne-haslo' }));
-    assert.equal(good.status, 303, 'login bez rozróżniania wielkości liter');
+    assert.equal(good.status, 303, 'username is case-insensitive');
     assert.match(good.headers['set-cookie'][0], /HttpOnly; SameSite=Strict/);
     const second = cookieOf(good);
     assert.equal((await request(port, 'GET', '/', { headers: { cookie: second } })).status, 200);
@@ -226,7 +226,7 @@ test('logowanie, wylogowanie i zmiana hasła', async () => {
     const changed = await request(port, 'POST', '/konto', form({ current: 'tajne-haslo', password: 'nowe-haslo-123', repeat: 'nowe-haslo-123' }, { cookie: second }));
     assert.equal(changed.status, 303);
     const third = cookieOf(changed);
-    assert.equal((await request(port, 'GET', '/', { headers: { cookie: first } })).status, 303, 'stara sesja unieważniona');
+    assert.equal((await request(port, 'GET', '/', { headers: { cookie: first } })).status, 303, 'old session invalidated');
     assert.equal((await request(port, 'GET', '/', { headers: { cookie: third } })).status, 200);
     assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'tajne-haslo' }))).status, 401);
     assert.equal((await request(port, 'POST', '/logowanie', form({ username: 'admin', password: 'nowe-haslo-123' }))).status, 303);
@@ -236,7 +236,7 @@ test('logowanie, wylogowanie i zmiana hasła', async () => {
   });
 });
 
-test('panel: strony, dodanie zadania, ochrona formularzy', async () => {
+test('panel: pages, adding a job, form protection', async () => {
   await withPanel(async ({ port, db, form }) => {
     const cookie = await setup(port, form);
     const get = (p) => request(port, 'GET', p, { headers: { cookie } });
@@ -286,7 +286,7 @@ test('panel: strony, dodanie zadania, ochrona formularzy', async () => {
   });
 });
 
-test('reset-password: nowe hasło z wiersza poleceń', async () => {
+test('reset-password: new password from the command line', async () => {
   const dataDir = path.join(tmp, 'reset');
   const dbFile = path.join(dataDir, 'easycopy.db');
   await withPanel(async ({ port, form }) => {
@@ -319,7 +319,7 @@ test('reset-password: nowe hasło z wiersza poleceń', async () => {
   }, { dbFile });
 });
 
-test('jeden port: archiwa w panelu pod /a/', async () => {
+test('single port: archives in the panel under /a/', async () => {
   const archiveRoot = path.join(tmp, 'jeden-port');
   const { mkdir, writeFile } = await import('node:fs/promises');
   const dir = path.join(archiveRoot, 'strona', '2026-11-04');
@@ -342,7 +342,7 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
 
     const cookie = await setup(port, form);
     const home = await request(port, 'GET', '/', { headers: { cookie } });
-    assert.ok(home.body.includes('href="/a/strona/"'), 'linki do archiwów względne, bez drugiego portu');
+    assert.ok(home.body.includes('href="/a/strona/"'), 'archive links are relative, without the second port');
     assert.ok(home.body.includes('pod tym samym adresem co panel'));
   }, { archiveRoot, archivePort: 0 });
 
@@ -354,7 +354,7 @@ test('jeden port: archiwa w panelu pod /a/', async () => {
   }, { archiveRoot, archivePort: 0, archivePassword: 'haslo-archiwow' });
 });
 
-test('harmonogram: następny termin i zakładanie zadań', () => {
+test('schedule: next run time and creating jobs', () => {
   const from = new Date(2026, 10, 4, 15, 0).getTime(); // Wednesday 4.11, 15:00
   const at = (ms) => { const d = new Date(ms); return [d.getDate(), d.getHours(), d.getMinutes()]; };
   assert.deepEqual(at(computeNextRun({ frequency: 'daily', time: '03:00' }, from)), [5, 3, 0]);
@@ -367,13 +367,13 @@ test('harmonogram: następny termin i zakładanie zadań', () => {
   const s = db.saveSchedule({ name: 'strona', url: 'https://www.example.com/', options: { preset: 'delikatny' }, frequency: 'daily', time: '03:00', nextRunAt: from - 1000 });
   db.saveSchedule({ name: 'pozniej', url: 'https://www.example.org/', options: {}, frequency: 'daily', time: '03:00', nextRunAt: from + 60_000 });
   const created = schedulerTick(db, from);
-  assert.equal(created.length, 1, 'tylko harmonogram, którego termin minął');
+  assert.equal(created.length, 1, 'only the schedule whose run time has passed');
   const job = db.getJob(created[0]);
   assert.equal(job.name, 'strona');
   assert.equal(job.options.preset, 'delikatny');
   assert.equal(job.scheduleId, s.id);
   assert.match(pl(db.getLog(job.id)[0].message), /harmonogramu/);
-  assert.ok(db.getSchedule(s.id).nextRunAt > from, 'następny termin przesunięty');
+  assert.ok(db.getSchedule(s.id).nextRunAt > from, 'next run time moved forward');
   assert.equal(db.getSchedule(s.id).lastJobId, job.id);
 
   // previous copy is still running → run skipped, no extra jobs added
@@ -385,11 +385,11 @@ test('harmonogram: następny termin i zakładanie zadań', () => {
   db.setScheduleEnabled(s.id, false, null);
   db.requestCancel(job.id);
   const later = schedulerTick(db, from + 10 * 86_400_000);
-  assert.ok(later.every((id) => db.getJob(id).name !== 'strona'), 'wstrzymany harmonogram nie zakłada zadań');
+  assert.ok(later.every((id) => db.getJob(id).name !== 'strona'), 'a paused schedule creates no jobs');
   db.close();
 });
 
-test('czytelny dziennik: etykiety i opisy błędów', () => {
+test('readable log: labels and error descriptions', () => {
   assert.equal(PL(`log.labels.${logLabel({ code: 'page' }).key}`), '✓ Pobrano');
   assert.equal(logLabel({ code: 'failed' }).problem, true);
   assert.equal(logLabel({ code: 'skipped' }).problem, false);
@@ -400,7 +400,7 @@ test('czytelny dziennik: etykiety i opisy błędów', () => {
   assert.match(pl(describeFailure({ error: 'timeout' })), /brak połączenia/);
 });
 
-test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
+test('panel: schedule, editing a queued job, deleting', async () => {
   const archiveRoot = path.join(tmp, 'usuwanie');
   const { mkdir, writeFile, symlink } = await import('node:fs/promises');
   for (const v of ['2026-11-03', '2026-11-04']) {
@@ -423,7 +423,7 @@ test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
     const sched = db.getScheduleByName('strona');
     assert.equal(sched.frequency, 'weekly');
     assert.equal(db.getJob(1).scheduleId, sched.id);
-    assert.equal(db.getScheduleByName('strona').lastJobId, 1, 'pierwsza kopia przypisana do harmonogramu');
+    assert.equal(db.getScheduleByName('strona').lastJobId, 1, 'first copy linked to the schedule');
     assert.ok((await get('/harmonogram')).body.includes('Co tydzień, pon. 03:00'));
     assert.ok((await get('/')).body.includes('↻ Co tydzień'));
 
@@ -449,7 +449,7 @@ test('panel: harmonogram, edycja zadania w kolejce, usuwanie', async () => {
     const blocked = await post('/archiwa/strona/usun');
     assert.equal(blocked.status, 409);
     assert.ok(existsSync(path.join(archiveRoot, 'strona')));
-    assert.equal((await post('/zadania/1/usun')).status, 409, 'aktywnego zadania nie usuwamy z historii');
+    assert.equal((await post('/zadania/1/usun')).status, 409, 'an active job is not deleted from the history');
 
     // stopping (from the queue) and deleting from the history
     await post('/zadania/1/anuluj');

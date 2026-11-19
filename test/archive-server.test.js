@@ -78,13 +78,13 @@ async function withServer(options, fn) {
   }
 }
 
-test('kolejność wersji', () => {
+test('version order', () => {
   assert.deepEqual(['2026-11-04-10', '2026-11-04', '2026-11-03', '2026-11-04-2'].sort(compareVersions), [
     '2026-11-03', '2026-11-04', '2026-11-04-2', '2026-11-04-10',
   ]);
 });
 
-test('lista archiwów', async () => {
+test('archive list', async () => {
   await withServer({}, async (port) => {
     const r = await request(port, '/');
     assert.equal(r.status, 200);
@@ -92,14 +92,14 @@ test('lista archiwów', async () => {
     assert.ok(html.includes('href="/a/strona/"'));
     assert.ok(html.includes('href="/a/druga/"'));
     assert.ok(html.includes('www.example.com'));
-    assert.ok(html.includes('href="/a/strona/2026-11-03/"'), 'starsza wersja na liście');
-    assert.ok(!html.includes('bez-wersji'), 'katalog bez wersji pominięty');
+    assert.ok(html.includes('href="/a/strona/2026-11-03/"'), 'older version in the list');
+    assert.ok(!html.includes('bez-wersji'), 'directory without versions skipped');
     assert.ok(html.includes('2 archiwa'));
     assert.match(r.headers['content-security-policy'], /default-src 'none'/);
   });
 });
 
-test('/a/<nazwa> → przekierowanie z ukośnikiem, potem wersja z dowiązania latest', async () => {
+test('/a/<name> → redirect with a trailing slash, then the version from the latest symlink', async () => {
   await withServer({}, async (port) => {
     // without the latest symlink the newest directory wins
     let r = await request(port, '/a/strona/');
@@ -119,7 +119,7 @@ test('/a/<nazwa> → przekierowanie z ukośnikiem, potem wersja z dowiązania la
   });
 });
 
-test('konkretna wersja i nagłówek sandbox zależny od manifestu', async () => {
+test('a specific version and a sandbox header based on the manifest', async () => {
   await withServer({}, async (port) => {
     const old = await request(port, '/a/strona/2026-11-03/');
     assert.equal(old.headers['content-security-policy'], 'sandbox allow-forms allow-popups allow-popups-to-escape-sandbox');
@@ -133,7 +133,7 @@ test('konkretna wersja i nagłówek sandbox zależny od manifestu', async () => 
   });
 });
 
-test('ochrona przed wyjściem poza katalog kopii', async () => {
+test('protection against leaving the copy directory', async () => {
   await withServer({}, async (port) => {
     for (const p of [
       '/a/strona/../tajne.txt',
@@ -147,12 +147,12 @@ test('ochrona przed wyjściem poza katalog kopii', async () => {
     ]) {
       const r = await request(port, p);
       assert.ok([400, 404].includes(r.status), `${p} → ${r.status}`);
-      assert.ok(!r.body.toString().includes('SEKRET'), `${p} nie ujawnia pliku`);
+      assert.ok(!r.body.toString().includes('SEKRET'), `${p} does not reveal the file`);
     }
   });
 });
 
-test('brak listowania katalogów i nieznane adresy', async () => {
+test('no directory listing and unknown addresses', async () => {
   await withServer({}, async (port) => {
     assert.equal((await request(port, '/a/strona/2026-11-03/pusty/')).status, 404);
     assert.equal((await request(port, '/a/nie-ma/')).status, 404);
@@ -163,7 +163,7 @@ test('brak listowania katalogów i nieznane adresy', async () => {
   });
 });
 
-test('Range (przewijanie wideo), HEAD, ETag i kompresja', async () => {
+test('Range (video seeking), HEAD, ETag and compression', async () => {
   await withServer({}, async (port) => {
     const part = await request(port, '/a/strona/2026-11-03/film.mp4', { range: 'bytes=10-19' });
     assert.equal(part.status, 206);
@@ -192,7 +192,7 @@ test('Range (przewijanie wideo), HEAD, ETag i kompresja', async () => {
   });
 });
 
-test('hasło (Basic Auth) i czcionki z sandboxu', async () => {
+test('password (Basic Auth) and fonts from the sandbox', async () => {
   await withServer({ password: 'tajne-haslo' }, async (port) => {
     assert.equal((await request(port, '/')).status, 401);
     assert.match((await request(port, '/')).headers['www-authenticate'], /Basic/);
@@ -207,6 +207,6 @@ test('hasło (Basic Auth) i czcionki z sandboxu', async () => {
     assert.equal(font.headers['access-control-allow-origin'], 'null');
     // other files with Origin: null still require the password
     assert.equal((await request(port, '/a/strona/2026-11-03/style.css', { origin: 'null' })).status, 401);
-    assert.equal((await request(port, '/healthz')).status, 200, 'healthcheck bez hasła');
+    assert.equal((await request(port, '/healthz')).status, 200, 'healthcheck without a password');
   });
 });

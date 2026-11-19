@@ -1,7 +1,7 @@
 {
   "name": "easycopy",
   "version": "0.1.0-dev",
-  "description": "Prosty archiwizator stron WWW do homelabu – kopie stron do przeglądania offline.",
+  "description": "A simple website archiver for the homelab – copies of websites for offline browsing.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",

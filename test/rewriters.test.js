@@ -17,20 +17,20 @@ const ctx = (extra = {}) => ({
   ...extra,
 });
 
-test('tokenizer zostawia niezmienione fragmenty bez zmian', () => {
+test('the tokenizer leaves untouched fragments unchanged', () => {
   const src = '<!doctype html><!-- <a href="x"> --><p class=a>Tekst</p><script>if (a<b) {"<a href=y>"}</script>';
   const out = rewriteHtml(src, { tag() {} });
   assert.equal(out, src);
 });
 
-test('tokenizer nie przepisuje znaczników wewnątrz <script> i komentarzy', () => {
+test('the tokenizer does not rewrite tags inside <script> and comments', () => {
   const src = '<script>var s = "<a href=\'/x\'>";</script><!-- <img src="/y"> --><a href="/z">z</a>';
   const seen = [];
   rewriteHtml(src, { tag: (t) => seen.push(`${t.name}:${t.get('href') ?? t.get('src') ?? ''}`) });
   assert.deepEqual(seen, ['script:', 'a:/z']);
 });
 
-test('encje w atrybutach są dekodowane i kodowane z powrotem', () => {
+test('entities in attributes are decoded and encoded back', () => {
   assert.equal(decodeEntities('a?x=1&amp;y=2&#38;z=&#x33;'), 'a?x=1&y=2&z=3');
   const out = rewritePage('<a href="/s?a=1&amp;b=2">x</a>', {
     ...ctx(),
@@ -47,7 +47,7 @@ test('srcset', () => {
   ]);
 });
 
-test('rewritePage: linki, zasoby, base, integrity, CSP, charset', () => {
+test('rewritePage: links, assets, base, integrity, CSP, charset', () => {
   const src = `<html><head><base href="https://example.com/"><meta charset="windows-1250">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
 <link rel="stylesheet" href="css/a.css" integrity="sha-1" crossorigin>
@@ -57,34 +57,34 @@ test('rewritePage: linki, zasoby, base, integrity, CSP, charset', () => {
 <div style="background:url(bg.jpg)"></div><style>.a{background:url('s.jpg')}</style>
 <form action="/szukaj"></form></body></html>`;
   const out = rewritePage(src, ctx());
-  assert.ok(!out.includes('<base'), 'base usunięty');
-  assert.ok(out.includes('<meta charset="utf-8">'), 'charset zmieniony na utf-8');
-  assert.ok(!out.includes('Content-Security-Policy'), 'CSP usunięte');
+  assert.ok(!out.includes('<base'), 'base removed');
+  assert.ok(out.includes('<meta charset="utf-8">'), 'charset changed to utf-8');
+  assert.ok(!out.includes('Content-Security-Policy'), 'CSP removed');
   assert.ok(out.includes('href="RES(css):https://example.com/css/a.css"'));
-  assert.ok(!out.includes('integrity'), 'integrity usunięte');
+  assert.ok(!out.includes('integrity'), 'integrity removed');
   assert.ok(out.includes('href="https://example.com/kanon"'), 'canonical absolutny');
   assert.ok(out.includes('href="LOCAL:/o-nas#zespol"'), 'kotwica zachowana');
-  assert.ok(out.includes('href="https://inna.example.org/"'), 'link zewnętrzny bez zmian');
+  assert.ok(out.includes('href="https://inna.example.org/"'), 'external link unchanged');
   assert.ok(out.includes('srcset="RES(asset):https://example.com/i.png 1x, RES(asset):https://example.com/i2.png 2x"'));
   assert.ok(out.includes('data-src="RES(asset):https://example.com/lazy.png"'));
-  assert.ok(out.includes('url(&quot;RES(asset):https://example.com/bg.jpg&quot;)'), 'style w atrybucie');
-  assert.ok(out.includes(`url("RES(asset):https://example.com/s.jpg")`), 'style w <style>');
+  assert.ok(out.includes('url(&quot;RES(asset):https://example.com/bg.jpg&quot;)'), 'style in an attribute');
+  assert.ok(out.includes(`url("RES(asset):https://example.com/s.jpg")`), 'style in <style>');
   assert.ok(out.includes('action="https://example.com/szukaj"'));
 });
 
-test('rewritePage: opcja zewnętrznych linków w nowej karcie', () => {
+test('rewritePage: option to open external links in a new tab', () => {
   const src = '<a href="https://inna.example.org/">A</a><a href="https://inna.example.org/" target="_self">B</a><a href="/x">C</a>';
   const out = rewritePage(src, ctx({ externalNewTab: true }));
   assert.ok(out.includes('<a href="https://inna.example.org/" target="_blank" rel="noopener noreferrer">A</a>'));
-  assert.ok(out.includes('target="_self">B'), 'istniejący target nie jest nadpisany');
-  assert.ok(out.includes('<a href="LOCAL:/x">C</a>'), 'linki wewnętrzne bez target');
+  assert.ok(out.includes('target="_self">B'), 'existing target is not overwritten');
+  assert.ok(out.includes('<a href="LOCAL:/x">C</a>'), 'internal links without target');
 });
 
-test('rewritePage: dodaje meta charset, gdy go brak', () => {
+test('rewritePage: adds meta charset when it is missing', () => {
   assert.equal(rewritePage('<html><head><title>x</title></head></html>', ctx()), '<html><head><meta charset="utf-8"><title>x</title></head></html>');
 });
 
-test('rewriteCss: url() i @import, data: pomijane', () => {
+test('rewriteCss: url() and @import, data: skipped', () => {
   const css = '@charset "iso-8859-2";@import "a.css";@import url(b.css) screen;.x{background:url( "c.png" )}.y{background:url(data:image/png;base64,AA)}';
   const out = rewriteCss(css, (u, kind) => `${kind}:${u}`);
   assert.equal(
@@ -104,7 +104,7 @@ test('robots.txt', () => {
   assert.equal(specific.isAllowed('/tylko-to'), false);
 });
 
-test('wykrywanie blokad', () => {
+test('block detection', () => {
   const h = (o) => new Headers(o);
   assert.equal(detectBlock(429, h({ 'retry-after': '5' })).retryAfterMs, 5000);
   assert.equal(detectBlock(403, h({ 'cf-mitigated': 'challenge' })).type, 'challenge');
@@ -115,7 +115,7 @@ test('wykrywanie blokad', () => {
   assert.equal(parseRetryAfter('Wed, 21 Oct 2015 07:28:10 GMT', Date.parse('Wed, 21 Oct 2015 07:28:00 GMT')), 10000);
 });
 
-test('ustawienia: User-Agent, rozmiary, nazwy', () => {
+test('settings: User-Agent, sizes, names', () => {
   assert.match(buildUserAgent(), /^EasyCopy\/\d/);
   assert.match(buildUserAgent({ browser: 'safari', os: 'ios' }), /iPhone.*Mobile\/15E148 Safari/);
   assert.match(buildUserAgent({ browser: 'firefox', os: 'linux' }), /X11; Linux x86_64; rv:/);

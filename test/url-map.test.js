@@ -5,7 +5,7 @@ import { createSite, isInScope, relativeLink, urlToLocalPath } from '../src/shar
 
 const site = createSite('https://www.example.com/');
 
-test('strony zapisują się jako index.html w katalogach', () => {
+test('pages are saved as index.html in directories', () => {
   assert.equal(urlToLocalPath('https://example.com/', 'page', site), 'index.html');
   assert.equal(urlToLocalPath('https://www.example.com/o-nas/', 'page', site), 'o-nas/index.html');
   assert.equal(urlToLocalPath('https://www.example.com/o-nas', 'page', site), 'o-nas/index.html');
@@ -13,14 +13,14 @@ test('strony zapisują się jako index.html w katalogach', () => {
   assert.equal(urlToLocalPath('https://www.example.com/o-nas.html', 'page', site), 'o-nas.html');
 });
 
-test('parametry zapytania stają się częścią nazwy pliku', () => {
+test('query parameters become part of the file name', () => {
   assert.equal(urlToLocalPath('https://www.example.com/blog?page=2', 'page', site), 'blog/index_page-2.html');
   assert.equal(urlToLocalPath('https://www.example.com/s.css?ver=6.1', 'css', site), 's_ver-6.1.css');
   const long = urlToLocalPath(`https://www.example.com/a?${'x'.repeat(200)}=1`, 'page', site);
   assert.match(long, /^a\/index_q[0-9a-f]{8}\.html$/);
 });
 
-test('zasoby z innych domen trafiają do _ext/', () => {
+test('assets from other domains go to _ext/', () => {
   assert.equal(urlToLocalPath('https://cdn.example.net/x.css', 'css', site), '_ext/cdn.example.net/x.css');
   assert.equal(
     urlToLocalPath('https://fonts.googleapis.com/css2?family=Inter', 'css', site),
@@ -28,24 +28,24 @@ test('zasoby z innych domen trafiają do _ext/', () => {
   );
 });
 
-test('pliki bez rozszerzenia dostają .bin, a linki do plików zachowują rozszerzenie', () => {
+test('files without an extension get .bin, links to files keep their extension', () => {
   assert.equal(urlToLocalPath('https://www.example.com/obrazek', 'asset', site), 'obrazek.bin');
   assert.equal(urlToLocalPath('https://www.example.com/plik.pdf', 'page', site), 'plik.pdf');
 });
 
-test('polskie znaki i niebezpieczne nazwy', () => {
+test('non-ASCII characters and unsafe names', () => {
   assert.equal(urlToLocalPath('https://www.example.com/zdj%C4%99cie%201.jpg', 'asset', site), 'zdjęcie 1.jpg');
   assert.equal(urlToLocalPath('https://www.example.com/a/%2e%2e/b.png', 'asset', site), 'b.png'); // the URL parser removes .. by itself
   assert.equal(urlToLocalPath('https://www.example.com/a:b*c.png', 'asset', site), 'a-b-c.png');
 });
 
-test('linki względne są kodowane', () => {
+test('relative links are encoded', () => {
   assert.equal(relativeLink('blog/index.html', 'img/zdjęcie 1.jpg'), '../img/zdj%C4%99cie%201.jpg');
   assert.equal(relativeLink('index.html', 'o-nas/index.html'), 'o-nas/index.html');
   assert.equal(relativeLink('o-nas/index.html', 'o-nas/index.html'), 'index.html');
 });
 
-test('zakres witryny: www i subdomeny', () => {
+test('site scope: www and subdomains', () => {
   assert.ok(isInScope('https://example.com/x', site));
   assert.ok(isInScope('http://www.example.com/x', site));
   assert.ok(!isInScope('https://blog.example.com/x', site));
