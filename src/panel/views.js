@@ -23,6 +23,7 @@ const SYSTEMS = ['win', 'mac', 'linux', 'android', 'ios'];
 
 const LOGO = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="13" height="16" rx="2"/><path d="M8 8h3M8 12h3"/><path d="M16 8h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9"/></svg>`;
 const ICON_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+const ICON_USER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
 const ICON_EXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4 11 13M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 const ICON_PAUSE = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
 
@@ -110,6 +111,11 @@ function csrfForm(action, label, { cls = 'btn', confirm = null, fields = {} } = 
   return `<form method="post" action="${e(action)}" class="inline"${confirm ? ` data-confirm="${e(confirm)}"` : ''}>${hidden}<button type="submit" class="${cls}">${label}</button></form>`;
 }
 
+/** Table cell with a label – on narrow screens tables turn into cards and the label is shown next to the value. */
+function cell(label, content, cls = '') {
+  return `<td${cls ? ` class="${cls}"` : ''} data-label="${e(label)}"><div class="v">${content}</div></td>`;
+}
+
 function languageLinks(t, path = '') {
   return `<nav class="lang-links" aria-label="${e(t('common.language'))}">${Object.entries(LANGUAGES)
     .map(([code, name]) => (code === t.lang ? `<strong>${e(name)}</strong>` : `<a href="${e(path)}?lang=${code}" hreflang="${code}" lang="${code}">${e(name)}</a>`))
@@ -143,8 +149,8 @@ export function layout(t, { title, active = '', body, user = null, warning = nul
 <a href="/" class="brand">${LOGO}<span>EasyCopy</span></a>
 <nav aria-label="${e(t('nav.main'))}">${nav}</nav>
 <div class="bar-actions">
-${user ? `<a href="/konto" class="user-link"${active === 'konto' ? ' aria-current="page"' : ''}>${e(user.username)}</a>${csrfForm('/wyloguj', e(t('common.logout')), { cls: 'link' })}` : ''}
-<a href="/nowa" class="btn primary">${ICON_PLUS}${e(t('common.newCopy'))}</a>
+${user ? `<a href="/konto" class="user-link"${active === 'konto' ? ' aria-current="page"' : ''} title="${e(t('account.title'))}">${ICON_USER}<span>${e(user.username)}</span></a><span class="hide-sm">${csrfForm('/wyloguj', e(t('common.logout')), { cls: 'link' })}</span>` : ''}
+<a href="/nowa" class="btn primary">${ICON_PLUS}<span>${e(t('common.newCopy'))}</span></a>
 </div>
 </div>
 </header>
@@ -195,12 +201,12 @@ ${activeJobs.map((j) => activeJobCard(t, j, archiveBase)).join('\n')}
       const older = a.versions.filter((v) => v.version !== a.latest);
       const sched = schedules.get(a.name);
       return `<tr>
-<td><div class="strong">${e(a.name)}</div><div class="mono">${e(hostOf(a.startUrl))}</div></td>
-<td>${e(t.date(info.createdAt ? Date.parse(info.createdAt) : null))}<div class="sub">${e(a.latest)}</div>${sched ? `<div class="sub">↻ ${e(describeSchedule(t, sched))}${sched.enabled ? '' : ` (${e(t('common.paused'))})`}</div>` : ''}</td>
-<td>${a.versions.length}${older.length ? `<details><summary>${e(t('archives.older'))}</summary><ul class="plain">${older.map((v) => `<li><a href="${e(archiveBase)}/a/${e(a.name)}/${e(v.version)}/" target="_blank" rel="noopener noreferrer">${e(v.version)}</a></li>`).join('')}</ul></details>` : ''}</td>
-<td>${info.pages ?? '—'}</td>
-<td>${info.bytes != null ? e(t.size(info.bytes)) : '—'}</td>
-<td>${status ? statusBadge(t, status) : '—'}</td>
+<td class="title"><div class="strong">${e(a.name)}</div><div class="mono">${e(hostOf(a.startUrl))}</div></td>
+${cell(t('archives.colLastCopy'), `${e(t.date(info.createdAt ? Date.parse(info.createdAt) : null))}<div class="sub">${e(a.latest)}</div>${sched ? `<div class="sub">↻ ${e(describeSchedule(t, sched))}${sched.enabled ? '' : ` (${e(t('common.paused'))})`}</div>` : ''}`)}
+${cell(t('archives.colVersions'), `${a.versions.length}${older.length ? `<details><summary>${e(t('archives.older'))}</summary><ul class="plain">${older.map((v) => `<li><a href="${e(archiveBase)}/a/${e(a.name)}/${e(v.version)}/" target="_blank" rel="noopener noreferrer">${e(v.version)}</a></li>`).join('')}</ul></details>` : ''}`)}
+${cell(t('archives.colPages'), `${info.pages ?? '—'}`)}
+${cell(t('archives.colSize'), info.bytes != null ? e(t.size(info.bytes)) : '—')}
+${cell(t('archives.colStatus'), status ? statusBadge(t, status) : '—')}
 <td class="actions">
 <a class="btn" href="${e(archiveBase)}/a/${e(a.name)}/" target="_blank" rel="noopener noreferrer">${e(t('common.open'))} ${ICON_EXT}</a>
 ${jobId && !activeJob ? csrfForm(`/zadania/${jobId}/ponow`, e(t('archives.newVersion'))) : ''}
@@ -212,7 +218,7 @@ ${activeJob ? '' : csrfForm(`/archiwa/${a.name}/usun`, e(t('common.delete')), { 
     .join('\n');
 
   const table = archives.length
-    ? `<div class="scroll"><table>
+    ? `<div class="scroll"><table class="cards">
 <thead><tr><th>${e(t('archives.colSite'))}</th><th>${e(t('archives.colLastCopy'))}</th><th>${e(t('archives.colVersions'))}</th><th>${e(t('archives.colPages'))}</th><th>${e(t('archives.colSize'))}</th><th>${e(t('archives.colStatus'))}</th><th class="actions">${e(t('archives.colActions'))}</th></tr></thead>
 <tbody>${rows}</tbody></table></div>`
     : `<div class="empty"><p>${e(t('archives.empty'))}</p><a class="btn primary" href="/nowa">${ICON_PLUS}${e(t('archives.firstCopy'))}</a></div>`;
@@ -280,9 +286,9 @@ export function newJobPage(t, { values, errors = {}, mode = 'new', action = '/no
   const sizeOptions = SIZE_OPTIONS.map((s) => ({ value: s.value, label: s.value === '0' ? t('sizeLimit.none') : s.label }));
 
   return `<div class="narrow wide">
-<a class="back" href="${e(back)}">${e(t('common.back'))}</a>
+<div class="page-title"><a class="back" href="${e(back)}">${e(t('common.back'))}</a>
 <h1>${e(t(`${mk}.title`))}</h1>
-<p class="lead">${e(t(`${mk}.lead`))}</p>
+<p class="lead">${e(t(`${mk}.lead`))}</p></div>
 ${Object.keys(errors).length ? `<p class="notice" role="alert">${e(t('form.fixErrors'))}</p>` : ''}
 <form method="post" action="${e(action)}" class="stack" novalidate>
 ${mode === 'retry' ? '<input type="hidden" name="_mode" value="retry">' : ''}
@@ -357,19 +363,19 @@ export function jobsPage(t, { jobs }) {
     .map((j) => {
       const s = j.stats ?? {};
       return `<tr>
-<td class="sub">#${j.id}</td>
-<td><a class="strong" href="/zadania/${j.id}">${e(j.name)}</a><div class="mono">${e(hostOf(j.url))}</div></td>
-<td>${statusBadge(t, j.status)}</td>
-<td>${e(t.date(j.createdAt))}</td>
-<td>${e(t.duration(j.startedAt ? (j.finishedAt ?? Date.now()) - j.startedAt : null))}</td>
-<td>${s.pages ?? '—'}</td>
-<td>${s.bytes != null ? e(t.size(s.bytes)) : '—'}</td>
+<td class="sub hide-sm">#${j.id}</td>
+<td class="title"><a class="strong" href="/zadania/${j.id}">${e(j.name)}</a><div class="mono">${e(hostOf(j.url))}</div></td>
+${cell(t('archives.colStatus'), statusBadge(t, j.status))}
+${cell(t('jobs.colAdded'), e(t.date(j.createdAt)))}
+${cell(t('jobs.colTime'), e(t.duration(j.startedAt ? (j.finishedAt ?? Date.now()) - j.startedAt : null)))}
+${cell(t('archives.colPages'), `${s.pages ?? '—'}`)}
+${cell(t('archives.colSize'), s.bytes != null ? e(t.size(s.bytes)) : '—')}
 </tr>`;
     })
     .join('\n');
   return `<div class="page-head"><div><h1>${e(t('jobs.title'))}</h1><p class="lead">${e(t('jobs.lead'))}</p></div></div>
 <section class="card">${jobs.length
-    ? `<div class="scroll"><table><thead><tr><th>#</th><th>${e(t('archives.colSite'))}</th><th>${e(t('archives.colStatus'))}</th><th>${e(t('jobs.colAdded'))}</th><th>${e(t('jobs.colTime'))}</th><th>${e(t('archives.colPages'))}</th><th>${e(t('archives.colSize'))}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="scroll"><table class="cards"><thead><tr><th>#</th><th>${e(t('archives.colSite'))}</th><th>${e(t('archives.colStatus'))}</th><th>${e(t('jobs.colAdded'))}</th><th>${e(t('jobs.colTime'))}</th><th>${e(t('archives.colPages'))}</th><th>${e(t('archives.colSize'))}</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="empty"><p>${e(t('jobs.empty'))}</p><a class="btn primary" href="/nowa">${ICON_PLUS}${e(t('common.newCopy'))}</a></div>`}
 </section>`;
 }
@@ -497,11 +503,11 @@ export function logRow(t, l) {
 export function schedulesPage(t, { schedules, saved = null }) {
   const rows = schedules
     .map((s) => `<tr>
-<td><div class="strong">${e(s.name)}</div><div class="mono">${e(hostOf(s.url))}</div></td>
-<td>${e(describeSchedule(t, s))}</td>
-<td>${s.enabled ? e(t.date(s.nextRunAt)) : `<span class="sub">${e(t('common.paused'))}</span>`}</td>
-<td>${s.lastJobId ? `<a href="/zadania/${s.lastJobId}">#${s.lastJobId}</a>` : '—'}</td>
-<td><span class="status"><span class="dot ${s.enabled ? 'full' : 'ring'}"></span><span>${e(t(s.enabled ? 'status.scheduleActive' : 'status.schedulePaused'))}</span></span></td>
+<td class="title"><div class="strong">${e(s.name)}</div><div class="mono">${e(hostOf(s.url))}</div></td>
+${cell(t('schedules.colRepeat'), e(describeSchedule(t, s)))}
+${cell(t('schedules.colNext'), s.enabled ? e(t.date(s.nextRunAt)) : `<span class="sub">${e(t('common.paused'))}</span>`)}
+${cell(t('schedules.colLast'), s.lastJobId ? `<a href="/zadania/${s.lastJobId}">#${s.lastJobId}</a>` : '—')}
+${cell(t('archives.colStatus'), `<span class="status"><span class="dot ${s.enabled ? 'full' : 'ring'}"></span><span>${e(t(s.enabled ? 'status.scheduleActive' : 'status.schedulePaused'))}</span></span>`)}
 <td class="actions">
 <a class="btn" href="/harmonogram/${s.id}/edytuj">${e(t('common.edit'))}</a>
 ${csrfForm(`/harmonogram/${s.id}/${s.enabled ? 'wstrzymaj' : 'wznow'}`, e(t(s.enabled ? 'schedules.pause' : 'schedules.resume')))}
@@ -512,7 +518,7 @@ ${csrfForm(`/harmonogram/${s.id}/usun`, e(t('common.delete')), { cls: 'btn quiet
   return `<div class="page-head"><div><h1>${e(t('schedules.title'))}</h1><p class="lead">${e(t('schedules.lead'))}</p></div></div>
 ${saved ? `<p class="notice" role="status">${e(saved)}</p>` : ''}
 <section class="card">${schedules.length
-    ? `<div class="scroll"><table><thead><tr><th>${e(t('archives.colSite'))}</th><th>${e(t('schedules.colRepeat'))}</th><th>${e(t('schedules.colNext'))}</th><th>${e(t('schedules.colLast'))}</th><th>${e(t('archives.colStatus'))}</th><th class="actions">${e(t('archives.colActions'))}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="scroll"><table class="cards"><thead><tr><th>${e(t('archives.colSite'))}</th><th>${e(t('schedules.colRepeat'))}</th><th>${e(t('schedules.colNext'))}</th><th>${e(t('schedules.colLast'))}</th><th>${e(t('archives.colStatus'))}</th><th class="actions">${e(t('archives.colActions'))}</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<div class="empty"><p>${e(t('schedules.empty'))}</p><p class="sub">${e(t('schedules.emptyHint'))}</p><a class="btn primary" href="/nowa">${ICON_PLUS}${e(t('common.newCopy'))}</a></div>`}
 </section>`;
 }
@@ -532,8 +538,8 @@ ${body}
 </fieldset>`;
 
   return `<div class="narrow wide">
-<h1>${e(t('notifications.title'))}</h1>
-<p class="lead">${e(t('notifications.lead'))}</p>
+<div class="page-title"><h1>${e(t('notifications.title'))}</h1>
+<p class="lead">${e(t('notifications.lead'))}</p></div>
 ${message ? `<p class="notice" role="status">${e(message)}</p>` : ''}
 ${Object.keys(errors).length ? `<p class="notice" role="alert">${e(t('form.fixErrors'))}</p>` : ''}
 <form method="post" action="/powiadomienia" class="stack" novalidate>
@@ -641,6 +647,7 @@ ${field(t, 'repeat', t('account.repeatNew'), passwordInput('repeat', 'new-passwo
 <section class="card pad stack">
 <h2>${e(t('account.info'))}</h2>
 <dl class="dl"><dt>${e(t('account.created'))}</dt><dd>${e(t.date(user.created_at))}</dd><dt>${e(t('account.lastLogin'))}</dt><dd>${e(t.date(user.last_login_at))}</dd></dl>
+<div class="form-actions">${csrfForm('/wyloguj', e(t('common.logout')))}</div>
 </section>
 </div>`;
 }

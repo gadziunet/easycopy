@@ -34,3 +34,5 @@
   timeout, refused or interrupted connection, unreachable server, certificate error.
 - Documentation in the GitHub Wiki (English and Polish), kept in the `docs/` folder
   and published by a GitHub Action.
+- Panel layout on phones: the header fits in two rows (menu in one line), tables become cards
+  with labels, buttons in tables are smaller so all actions fit, a sign-out button on the Account page.
