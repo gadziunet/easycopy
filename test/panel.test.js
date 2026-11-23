@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { openDatabase } from '../src/panel/db.js';
+import { staticUrl } from '../src/panel/static-files.js';
 import { parseJobForm, formFromJob } from '../src/panel/job-form.js';
 import { runJob } from '../src/panel/runner.js';
 import { workerLoop } from '../src/panel/worker-process.js';
@@ -249,6 +250,11 @@ test('panel: pages, adding a job, form protection', async () => {
     assert.equal((await get('/nowa')).status, 200);
     assert.equal((await get('/konto')).status, 200);
     assert.equal((await request(port, 'GET', '/static/app.css')).status, 200);
+    // the CSS address changes with the file content, so browsers don't keep an old version
+    const cssUrl = home.body.match(/href="(\/static\/app\.css\?v=[0-9a-f]{10})"/)?.[1];
+    assert.ok(cssUrl, 'CSS link with a content hash');
+    assert.equal(cssUrl, staticUrl('/static/app.css'));
+    assert.equal((await request(port, 'GET', cssUrl)).status, 200);
 
     const csrf = await post('/nowa', { url: 'https://www.example.com/' }, { origin: 'https://zla-strona.example' });
     assert.equal(csrf.status, 403);
