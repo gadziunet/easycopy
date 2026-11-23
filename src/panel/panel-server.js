@@ -1,7 +1,6 @@
 // Web panel server (port 8080 by default).
 
 import http from 'node:http';
-import { readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { listArchives, listVersions, readManifest } from '../server/archives.js';
@@ -19,10 +18,8 @@ import {
   schedulesPage, setupPage,
 } from './views.js';
 
-const STATIC = {
-  '/static/app.css': { type: 'text/css; charset=utf-8', body: readFileSync(new URL('./static/app.css', import.meta.url)) },
-  '/static/app.js': { type: 'text/javascript; charset=utf-8', body: readFileSync(new URL('./static/app.js', import.meta.url)) },
-};
+
+import { STATIC } from './static-files.js';
 
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
   + "frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'";

@@ -3,6 +3,7 @@
 import { escapeHtml as e } from '../server/list-page.js';
 import { LANGUAGES, localize } from '../shared/i18n.js';
 import { PRESETS, PROJECT_URL, VERSION } from '../worker/settings.js';
+import { staticUrl } from './static-files.js';
 import { DEPTH_OPTIONS, SIZE_OPTIONS } from './job-form.js';
 import { logLabel } from './log-format.js';
 import { FREQUENCIES, WEEKDAYS, describeSchedule } from './scheduler.js';
@@ -140,8 +141,8 @@ export function layout(t, { title, active = '', body, user = null, warning = nul
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${e(title)} – EasyCopy</title>
-<link rel="stylesheet" href="/static/app.css?v=${e(VERSION)}">
-<script src="/static/app.js?v=${e(VERSION)}" defer></script>
+<link rel="stylesheet" href="${e(staticUrl('/static/app.css'))}">
+<script src="${e(staticUrl('/static/app.js'))}" defer></script>
 </head>
 <body>
 <header class="top">
@@ -580,7 +581,7 @@ function authShell(t, title, body, path) {
   return `<!doctype html>
 <html lang="${t.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex"><title>${e(title)} – EasyCopy</title>
-<link rel="stylesheet" href="/static/app.css?v=${e(VERSION)}"></head>
+<link rel="stylesheet" href="${e(staticUrl('/static/app.css'))}"></head>
 <body class="center">
 <main class="card pad login stack">
 <div class="row-between"><div class="brand">${LOGO}<span>EasyCopy</span></div>${languageLinks(t, path)}</div>

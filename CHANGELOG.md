@@ -36,3 +36,4 @@
   and published by a GitHub Action.
 - Panel layout on phones: the header fits in two rows (menu in one line), tables become cards
   with labels, buttons in tables are smaller so all actions fit, a sign-out button on the Account page.
+- Panel CSS and JS links carry a content hash, so browsers load the new look right after an update.
